@@ -14,13 +14,14 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
     private CancellationToken activeToken;
     private readonly InputRequestLifetimes requests = new();
     private readonly Dictionary<string, StringBuilder> text = [];
-    private string final = "";
+    private readonly CompletedReplyBuffer completed = new();
     private int streamedCharacters;
     private void Emit(EventKind kind, string message, string id = "", string detail = "") => Event?.Invoke(new(Agent, kind, message, id, detail));
 
     public async Task ConnectAsync(CancellationToken token)
     {
         if (wire is { Alive: true }) return;
+        if (wire is not null) await wire.DisposeAsync();
         wire = new JsonProcess();
         wire.Message += Handle;
         wire.Diagnostic += s => Emit(EventKind.Status, s);
@@ -56,7 +57,7 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
     {
         activeToken = token;
         await ConnectAsync(token);
-        text.Clear(); final = ""; streamedCharacters = 0;
+        text.Clear(); completed.Clear(); streamedCharacters = 0;
         turn = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancel = token.Register(() => turn.TrySetCanceled(token));
         await wire!.RequestAsync("turn/start", new
@@ -91,7 +92,7 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
             if (type == "agentMessage" && method == "item/completed")
             {
                 var body = item.Str("text");
-                if (!string.IsNullOrWhiteSpace(body)) { final = body; Emit(EventKind.Message, body, id); }
+                if (!string.IsNullOrWhiteSpace(body)) { completed.Add(id, body); text.Remove(id); Emit(EventKind.Message, body, id); }
             }
             else if (type is not ("agentMessage" or "userMessage" or "reasoning"))
                 Emit(EventKind.Tool, $"{type} · {(method.EndsWith("started") ? "running" : item.Str("status"))}", id, item?.ToJsonString() ?? "");
@@ -103,8 +104,12 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
             requests.CancelAll();
             var status = p?["turn"].Str("status");
             if (status == "failed") turn?.TrySetException(new IOException(p?["turn"]?["error"].Str("message")));
-            else if (status == "interrupted") turn?.TrySetCanceled();
-            else turn?.TrySetResult(final.Length > 0 ? final : text.Values.LastOrDefault()?.ToString() ?? "");
+            else if (status == "interrupted")
+            {
+                if (activeToken.IsCancellationRequested) turn?.TrySetCanceled(activeToken);
+                else turn?.TrySetException(new IOException("Codex interrupted the turn before completion. Review activity before continuing."));
+            }
+            else turn?.TrySetResult(completed.Complete(text.Values.LastOrDefault()?.ToString() ?? ""));
         }
         else if (method == "turn/plan/updated") Emit(EventKind.Tool, "Plan updated", detail: p?.ToJsonString() ?? "");
         else if (method == "thread/tokenUsage/updated") Emit(EventKind.Usage, "Token usage updated", detail: p?.ToJsonString() ?? "");

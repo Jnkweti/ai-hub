@@ -104,6 +104,7 @@ public partial class MainWindow
             current.IsArchived ? "Restore this conversation to send a message" : current.PauseReason.Length > 0 ? "Tell your agents what to do next…" : "Give your agents a direction…";
         ComposerHint.Visibility = string.IsNullOrEmpty(question?.IsSecret == true ? SecretAnswer.Password : Composer.Text) ? Visibility.Visible : Visibility.Collapsed;
         Target.IsEnabled = ready && !switching && !sending && !closing && !current.IsArchived && question is null;
+        ImportFilesButton.IsEnabled = Target.IsEnabled;
         UpdateSendButton();
     }
     private void SecretAnswer_Changed(object sender, RoutedEventArgs e)

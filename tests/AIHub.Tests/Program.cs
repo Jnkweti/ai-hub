@@ -23,6 +23,8 @@ if (args.Length == 2 && args[0] == "--shared-context-live")
 { await SharedContextLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--shared-work-live")
 { await SharedWorkLiveCheck.Run(args[1]); return; }
+if (args.Length == 2 && args[0] == "--claude-work-live")
+{ await SharedWorkLiveCheck.RunClaude(args[1]); return; }
 if (args.Length == 1 && args[0] == "--collaboration-tests")
 {
     await CollaborationTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return;
@@ -33,6 +35,12 @@ if (args.Length == 1 && args[0] == "--shared-context-tests")
 { await SharedContextTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
 if (args.Length == 1 && args[0] == "--task-context-tests")
 { await TaskContextTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
+if (args.Length == 1 && args[0] == "--reliability-tests")
+{ await ReliabilityTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); await ContextSourceTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
+if (args.Length == 2 && args[0] == "--profile-source-recovery")
+{ ContextSourceTests.VerifyProfileCopy(args[1]); return; }
+if (args.Length == 2 && args[0] == "--context-source-live")
+{ await ContextSourceLiveCheck.Run(args[1]); return; }
 if (args.Length == 1 && args[0] == "--concurrent-work-tests")
 { await ConcurrentWorkTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
 
@@ -393,6 +401,8 @@ await CollaborationTests.Run(Test);
 await CollaborationRoutingTests.Run(Test);
 await SharedContextTests.Run(Test);
 await TaskContextTests.Run(Test);
+await ReliabilityTests.Run(Test);
+await ContextSourceTests.Run(Test);
 await ConcurrentWorkTests.Run(Test);
 await CollaborationEvidenceTests.Run(Test);
 Console.WriteLine($"\n{passed} tests passed.");
@@ -487,7 +497,15 @@ static class FakeWire
                 else if (method == "turn/start")
                 {
                     turn++; Emit(new { id, result = new { turn = new { id = "t" + turn } } });
-                    if (m["params"]?["input"]?[0].Str("text").StartsWith("AI HUB PROJECT STATUS") == true)
+                    if (m["params"]?["input"]?[0].Str("text") == "multipart-reply-fixture")
+                    {
+                        Emit(new { method = "item/agentMessage/delta", @params = new { threadId = "fake-codex", itemId = "first", delta = "First" } });
+                        Emit(new { method = "item/completed", @params = new { threadId = "fake-codex", item = new { type = "agentMessage", id = "first", text = "First finding." } } });
+                        CodexResult("Final finding.");
+                    }
+                    else if (m["params"]?["input"]?[0].Str("text") == "provider-interrupted-fixture")
+                        Emit(new { method = "turn/completed", @params = new { threadId = "fake-codex", turn = new { id = "t1", status = "interrupted" } } });
+                    else if (m["params"]?["input"]?[0].Str("text").StartsWith("AI HUB PROJECT STATUS") == true)
                     {
                         if (!readOnly) throw new Exception("Status worker is not read only");
                         CodexResult(ProjectStatusTests.Report);

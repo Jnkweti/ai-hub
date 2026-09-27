@@ -78,9 +78,10 @@ internal static class ConcurrentWorkTests
             });
             await hub.SubmitAsync("Claude, discuss the design", "Both"); await begun.Task.WaitAsync(TimeSpan.FromSeconds(15));
             await hub.StopAsync(); await hub.SubmitAsync("Actually, use local storage", "Both"); await f.Finished();
+            Check(f.Memory.Get(f.TaskId)!.State == WorkState.Ready && f.Calls == 3, "Correction failed before scheduling check: " + f.Memory.Get(f.TaskId)!.Reason + "; speakers=" + string.Join(",", f.Speakers) + "; " + f.LastError);
             Check(f.Speakers.Take(2).SequenceEqual([Agent.Claude, Agent.Claude]), "Correction switched away from current speaker");
             await hub.SubmitAsync("Codex, check the tradeoff", "Both"); await f.Finished();
-            Check(f.Speakers[3] == Agent.Codex, "Explicit address did not override scheduling");
+            Check(f.Speakers[3] == Agent.Codex, "Explicit address did not override scheduling: " + string.Join(",", f.Speakers) + "; " + f.Memory.Get(f.TaskId)!.Reason);
         });
         await test("single-agent requests never start peer preparation", async () =>
         {

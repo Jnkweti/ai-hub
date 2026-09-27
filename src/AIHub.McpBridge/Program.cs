@@ -27,7 +27,12 @@ try
             await output.FlushAsync(life.Token);
         }
     }
-    var inbound = Pump(Console.In, writer); var outbound = Pump(reader, Console.Out);
+    // Console.In's synchronized reader may block synchronously while waiting for more stdin.
+    // Isolate that wait so it cannot prevent the host EOF pump or bridge shutdown from running.
+    var input = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8, false, 4096, leaveOpen: true);
+    var inbound = Task.Factory.StartNew(() => Pump(input, writer), CancellationToken.None,
+        TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+    var outbound = Pump(reader, Console.Out);
     var finished = await Task.WhenAny(inbound, outbound);
     await finished;
     await life.CancelAsync();

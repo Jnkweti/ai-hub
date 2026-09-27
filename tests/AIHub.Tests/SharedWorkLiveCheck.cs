@@ -3,6 +3,35 @@ using System.Text.Json;
 
 internal static class SharedWorkLiveCheck
 {
+    public static async Task RunClaude(string output)
+    {
+        output = Path.GetFullPath(output); if (Directory.Exists(output)) throw new IOException("Use a fresh profile.");
+        var workspace = Path.Combine(output, "project"); Directory.CreateDirectory(workspace); File.WriteAllText(Path.Combine(workspace, "source.txt"), "Stable check fixture.");
+        var local = new LocalStore(Path.Combine(output, "data")); var memory = new TaskMemory(local); var store = new CollaborationStore(local, memory);
+        var id = memory.Create("claude-work-live", workspace, "Verify Claude-origin command evidence without inventing unknown exit status.");
+        var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
+        await using var hub = new HubCoordinator(_ => throw new IOException("Legacy dispatch"))
+        {
+            TaskMemory = memory, TaskId = id, AllowEdits = true, AutoExchange = false, CollaborationStore = store,
+            CollaborationBridgePath = Environment.GetEnvironmentVariable("AIHUB_TEST_BRIDGE") ?? CollaborationTests.Bridge,
+            CollaborationFactory = (_, host) => new ClaudeClient(new(workspace, true) { Collaboration = host }),
+            RequestApproval = (a, _) => Task.FromResult(new Decision(!a.IsQuestion && a.Detail.Contains("CLAUDE_CHECK_OK")))
+        };
+        hub.Event += e => events.Enqueue(e);
+        await hub.SubmitAsync("Isolated verification: no edits, network, other directories, delegation or research. " +
+            "Claim a check using claim_work, operation exactly printf 'CLAUDE_CHECK_OK', scope files=['source.txt'] focus=['native exit status'], reusable=true independent=false. " +
+            "Run that exact Bash command once, then get_evidence. Use the evidence ID in complete_work. If the captured command differs, claim its exact recorded command and complete that claim. " +
+            "An unknown exit code must stay unknown: a failed/nonreusable receipt in that case is the intended verification result, not a reason to repeat execution. " +
+            "Submit status assignment_complete (omit reply_to), then report whether the host captured an explicit exit code and allowed reuse.", "Claude");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4)); while (memory.Get(id)!.State == WorkState.Running) await Task.Delay(100, timeout.Token);
+        var doc = store.Read(id); var work = doc.SharedWork.LastOrDefault(w => w.Owner == Agent.Claude && w.State is "completed" or "failed");
+        File.WriteAllText(Path.Combine(output, "results.json"), JsonSerializer.Serialize(new { task = memory.Get(id), doc.SharedWork, doc.Evidence }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(output, "events.json"), JsonSerializer.Serialize(events.ToArray()));
+        if (memory.Get(id)!.State != WorkState.Ready || work is null) throw new IOException("Claude-origin check could not complete: " + memory.Get(id)!.Reason);
+        var evidence = doc.Evidence.Single(e => work.EvidenceRefs.Contains(e.Id));
+        if (work.Reusable != (evidence.ExitCode == 0 && evidence.IsError != true) || evidence.Tool is not ("Bash" or "PowerShell")) throw new IOException("Claude evidence status was misrepresented.");
+        Console.WriteLine($"PASS Claude native {evidence.Tool} evidence completed claim; exit={evidence.ExitCode?.ToString() ?? "unknown"}, reusable={work.Reusable}");
+    }
     public static async Task Run(string output)
     {
         output = Path.GetFullPath(output); if (Directory.Exists(output)) throw new IOException("Use a fresh profile.");

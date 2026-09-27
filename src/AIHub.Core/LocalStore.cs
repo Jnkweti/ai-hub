@@ -13,7 +13,7 @@ public sealed class LocalStore
         DirectoryPath = Path.GetFullPath(directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AIHub"));
         Directory.CreateDirectory(DirectoryPath);
     }
-    public T Load<T>(string name, Func<T> fallback, Func<T, bool>? repair = null)
+    public T Load<T>(string name, Func<T> fallback, Func<T, bool>? repair = null, bool failOnInvalid = false)
     {
         lock (sync)
         {
@@ -22,12 +22,17 @@ public sealed class LocalStore
             try
             {
                 var value = JsonSerializer.Deserialize<T>(File.ReadAllText(path));
-                if (value is null) { BackUp(path); return fallback(); }
+                if (value is null)
+                {
+                    if (failOnInvalid) throw new IOException("Saved state is null; file preserved: " + name);
+                    BackUp(path); return fallback();
+                }
                 if (repair?.Invoke(value) == true) BackUp(path);
                 return value;
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or NotSupportedException or FormatException or OverflowException or ArgumentException or InvalidOperationException)
             {
+                if (failOnInvalid) throw new IOException("Saved state cannot be parsed; file preserved and task blocked: " + name, ex);
                 BackUp(path);
                 return fallback();
             }

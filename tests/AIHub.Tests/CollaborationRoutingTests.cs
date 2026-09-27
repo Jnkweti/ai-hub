@@ -31,6 +31,7 @@ internal static class CollaborationRoutingTests
         public CollaborationStore Store { get; }
         public string TaskId { get; }
         public int Calls;
+        public string LastError = "";
         public List<Agent> Speakers { get; } = [];
         public Fixture()
         {
@@ -43,7 +44,8 @@ internal static class CollaborationRoutingTests
         { Memory.Own(claim, agent); return Store.OpenDispatch(claim, agent, [Agent.Codex, Agent.Claude], incoming, default); }
         public JsonNode Submit(CollaborationDispatch dispatch, Agent agent, JsonObject message) =>
             dispatch.Call(agent, dispatch.Id, "fixture-session", "submit_message", message, default);
-        public HubCoordinator Hub(Func<Agent, CollaborationMcpHost, int, string, CancellationToken, Task<string>> respond) => new(_ => throw new Exception("Legacy factory used"))
+        private HubCoordinator Track(HubCoordinator hub) { hub.Event += e => { if (e.Kind == EventKind.Error) LastError = e.Detail; }; return hub; }
+        public HubCoordinator Hub(Func<Agent, CollaborationMcpHost, int, string, CancellationToken, Task<string>> respond) => Track(new(_ => throw new Exception("Legacy factory used"))
         {
             TaskMemory = Memory, TaskId = TaskId, CollaborationStore = Store, CollaborationBridgePath = CollaborationTests.Bridge,
             CollaborationFactory = (agent, host) => new StructuredFake(agent, host, async (prompt, token) =>
@@ -51,7 +53,7 @@ internal static class CollaborationRoutingTests
                 var index = Interlocked.Increment(ref Calls); lock (Speakers) Speakers.Add(agent);
                 return await respond(agent, host, index, prompt, token);
             })
-        };
+        });
         public Task Finished() => Until(() => Memory.Get(TaskId)!.State != WorkState.Running);
         public void Dispose()
         {

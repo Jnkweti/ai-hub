@@ -91,7 +91,14 @@ public partial class MainWindow
                     pin.IsEnabled = replace.IsEnabled = false;
                     try
                     {
-                        if (workers.TryGetValue(row.Task.RoomId, out var owner) && owner.Hub.TaskId == row.Task.Id) await owner.Hub.StopAsync();
+                        if (workers.TryGetValue(row.Task.RoomId, out var owner) && owner.Hub.TaskId == row.Task.Id)
+                        {
+                            await owner.Hub.StopAsync();
+                            foreach (var message in owner.Room.Messages.Where(m => !m.Complete))
+                                if (!message.Text.EndsWith("[Stopped]")) message.Text += "\n\n[Stopped]";
+                            owner.Room.PauseReason = "Instructions changed. Review them, then continue the task.";
+                            if (ReferenceEquals(current, owner.Room)) { MarkInterrupted(); SetPause(owner.Room.PauseReason); }
+                        }
                         collaborationStore.PinInstruction(row.Task.Id, editor.Text, oldId);
                         editor.Clear(); RefreshChoices(); text.Text = await Task.Run(() => collaborationStore.ContextReportAsync(row.Task.Id, CancellationToken.None));
                         result.Text = "Saved. Send a message to continue with these instructions; no agent was started.";

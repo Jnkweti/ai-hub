@@ -350,7 +350,7 @@ public partial class MainWindow : Window
                 var task = taskMemory.Get(current.ActiveTaskId);
                 if (task is null || task.RoomId != current.Id || !string.Equals(task.Workspace, Path.TrimEndingDirectorySeparator(Path.GetFullPath(current.Workspace)), StringComparison.OrdinalIgnoreCase))
                 {
-                    current.ActiveTaskId = taskMemory.Create(current.Id, current.Workspace, prompt);
+                    current.ActiveTaskId = taskMemory.Create(current.Id, current.Workspace, prompt.Length <= 32000 ? prompt : "Review the long user message saved in this conversation. Retrieve its full shared source before answering.");
                     foreach (var legacy in current.Messages.Where(m => m.TaskId.Length == 0)) legacy.TaskId = current.ActiveTaskId;
                     await DisposeCurrentHubAsync(); BuildHub(); Save();
                 }
@@ -666,6 +666,7 @@ public partial class MainWindow : Window
         ArchiveButton.ToolTip = current.IsArchived ? "Move this conversation back to the active list" : "Keep this conversation in the archive";
         ArchivedBanner.Visibility = current.IsArchived ? Visibility.Visible : Visibility.Collapsed;
         Composer.IsReadOnly = current.IsArchived; Target.IsEnabled = available && !current.IsArchived;
+        ImportFilesButton.IsEnabled = available && !current.IsArchived && activeQuestion is null;
         AutoToggle.IsEnabled = available && !current.IsArchived; StopButton.IsEnabled = available;
         TasksButton.IsEnabled = available;
         ProjectStatusButton.IsEnabled = available && !current.IsArchived; StatusActionsButton.IsEnabled = available && !current.IsArchived;
@@ -679,7 +680,7 @@ public partial class MainWindow : Window
         current.PauseReason = reason; PauseReasonLabel.Text = reason;
         if (reason.Length > 0 && !current.IsArchived) { RoundLabel.Text = "Paused"; HandoffSignal.Stop(); }
         PauseBanner.Visibility = reason.Length > 0 && !current.IsArchived ? Visibility.Visible : Visibility.Collapsed;
-        var resumable = current.LastTask.Length > 0 && (reason.Contains("round", StringComparison.OrdinalIgnoreCase) || reason.Contains("repeated", StringComparison.OrdinalIgnoreCase) || reason.StartsWith("You stopped"));
+        var resumable = current.LastTask.Length > 0 && (reason.Contains("round", StringComparison.OrdinalIgnoreCase) || reason.Contains("repeated", StringComparison.OrdinalIgnoreCase) || reason.StartsWith("You stopped") || reason.StartsWith("Instructions changed") || reason.Contains("Task context storage"));
         ContinueButton.Visibility = resumable ? Visibility.Visible : Visibility.Collapsed;
         ComposerHint.Text = current.IsArchived ? "Restore this conversation to send a message" : reason.Length > 0 ? "Tell your agents what to do next…" : "Give your agents a direction…";
         RefreshInputComposer();
@@ -799,7 +800,8 @@ public partial class MainWindow : Window
         var task = current.LastTask;
         if (string.IsNullOrWhiteSpace(task)) { Composer.Focus(); return; }
         if (ProjectStatusWorkflow.IsStatusRequest(task)) { await SendAsync(task); return; }
-        Composer.Text = "Continue the previous task only if useful unfinished work remains. Otherwise report that it is complete.\n\nTask: " + task;
+        Composer.Text = "Continue the previous task only if useful unfinished work remains. Otherwise report that it is complete.\n\n" +
+            (task.Length > 24000 ? "Use the full long message already saved in this conversation; retrieve its shared source as needed." : "Task: " + task);
         Target.SelectedIndex = 0; await SendAsync();
         current.LastTask = task; Save();
     }
@@ -856,6 +858,7 @@ public partial class MainWindow : Window
     {
         if (closeAllowed) return;
         e.Cancel = true;
+        if (fileImport is not null) { closeAfterSwitch = true; fileImport.Cancel(); return; }
         // Let an archive/delete/switch finish disposing its outgoing provider before closing.
         if (switching) { closeAfterSwitch = true; return; }
         if (closing) return;

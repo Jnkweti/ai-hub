@@ -26,6 +26,10 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
         IEnumerable<string> paths;
         if (gitList is not null)
         {
+            // A selected folder can be ignored by an enclosing repository. An empty index is
+            // not evidence that such a workspace has no inputs.
+            if (gitList.Length == 0 && Directory.EnumerateFileSystemEntries(workspace).Any())
+                limitations.Add("Git listed no files in a non-empty workspace; freshness cannot be certified.");
             var head = await GitAsync(workspace, ["rev-parse", "--verify", "HEAD"], token);
             var branch = await GitAsync(workspace, ["symbolic-ref", "--quiet", "--short", "HEAD"], token);
             index = await GitAsync(workspace, ["ls-files", "--stage", "-z", "--", "."], token);

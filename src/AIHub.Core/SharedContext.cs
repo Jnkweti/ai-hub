@@ -97,7 +97,23 @@ public sealed partial class CollaborationStore
         }
     });
     internal JsonNode ResearchCall(ContextResearchSession session, Agent agent, string dispatchId, string? nativeSession,
-        string tool, JsonNode? args, CancellationToken token) => memory.WithClaim(session.Claim, task =>
+        string tool, JsonNode? args, CancellationToken token)
+    {
+        void ValidateSession()
+        {
+            token.ThrowIfCancellationRequested(); session.Token.ThrowIfCancellationRequested();
+            if (session.Closed || agent != session.Assignment.Agent || dispatchId != session.Id || string.IsNullOrWhiteSpace(nativeSession))
+                throw new CollaborationValidationException("Research session is closed or does not match its host-bound identity.");
+        }
+        ValidateSession();
+        var view = memory.WithClaim(session.Claim, task => { lock (gate) return (task.Workspace, Document: Copy(Load(task))); });
+        if (tool is "get_shared_context" or "read_context_source")
+        {
+            var response = tool == "read_context_source" ? ReadContextSource(view.Document, args) : ContextPage(new WorkTask { Workspace = view.Workspace }, view.Document, args, token);
+            return memory.WithClaim(session.Claim, _ => { ValidateSession(); return response; });
+        }
+        var captured = tool == "publish_context" ? CaptureContextAsync(view.Workspace, session.Assignment.Scope, token).GetAwaiter().GetResult() : null;
+        return memory.WithClaim(session.Claim, task =>
     {
         lock (gate)
         {
@@ -112,7 +128,6 @@ public sealed partial class CollaborationStore
                     assignment = session.Assignment, shared_context_sections = original.ContextSections.Count,
                     briefing = memory.Briefing(task.Id), purpose = "Read-only context research. Publish findings; do not perform the implementation." }, CollaborationContract.JsonOptions)!;
             }
-            if (tool == "get_shared_context") return ContextPage(task, original, args, token);
             if (tool == "get_context_records") return ContextRecordsPage(original, args);
             if (tool == "read_context_record") return ReadContextRecord(original, args);
             if (tool != "publish_context") throw new CollaborationValidationException("Research workers can only read task/shared context and publish_context.");
@@ -124,7 +139,7 @@ public sealed partial class CollaborationStore
                     throw new CollaborationValidationException("Context already published. Retry identical content or finish this research turn.");
                 return JsonSerializer.SerializeToNode(new { section_id = existing.Id, duplicate = true, persistent = true })!;
             }
-            var after = CaptureContextAsync(task.Workspace, session.Assignment.Scope, token).GetAwaiter().GetResult();
+            var after = captured!;
             foreach (var source in notes.Sources)
             {
                 CollaborationPaths.Validate(task.Workspace, source);
@@ -142,7 +157,8 @@ public sealed partial class CollaborationStore
             return JsonSerializer.SerializeToNode(new { section_id = section.Id, persistent = true, reusable = coverage,
                 meaning = "Saved agent findings with file fingerprints. Claims are not independently verified." })!;
         }
-    });
+        });
+    }
     private static JsonNode ContextPage(WorkTask task, CollaborationDocument document, JsonNode? args, CancellationToken token)
     {
         if (args is not JsonObject o || o.Count != 2 || !Integer(o["offset"], out var offset) || offset is < 0 or > 16 ||
@@ -224,7 +240,7 @@ internal sealed class ContextResearchSession(CollaborationStore store, TaskClaim
     public JsonArray Definitions => new(
         CollaborationTools.Tool("get_task_context", "Read your assigned research area and task.", CollaborationContract.EmptySchema(), true),
         CollaborationTools.ContextTool(),
-        CollaborationTools.RecordsTool(), CollaborationTools.RecordTool(),
+        CollaborationTools.RecordsTool(), CollaborationTools.RecordTool(), CollaborationTools.SourceTool(),
         CollaborationTools.Tool("publish_context", "Save bounded research findings for both agents and the user.", NotesSchema(), false));
     private static JsonObject NotesSchema() => JsonNode.Parse("""
         {"type":"object","additionalProperties":false,"required":["findings","sources","open_questions"],"properties":{

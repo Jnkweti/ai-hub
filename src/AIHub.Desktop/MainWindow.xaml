@@ -190,6 +190,7 @@
         <Button DockPanel.Dock="Right" x:Name="ShowQuestionButton" Content="Show question" Click="ShowQuestion_Click" Style="{StaticResource QuietButton}" Padding="6,3" FontSize="12"/>
         <TextBlock x:Name="AnswerLabel" Foreground="{StaticResource CyanBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
        </DockPanel>
+       <Button x:Name="ImportFilesButton" Content="Import files" Click="ImportFiles_Click" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,0,0,6" Padding="8,5" FontSize="12" ToolTip="Copy files into this conversation's project folder and add references to your draft. Existing files are kept." AutomationProperties.Name="Import files"/>
        <Border x:Name="ComposerFrame" BorderBrush="#41606B" BorderThickness="1" CornerRadius="{StaticResource ComposerRadius}" Background="{StaticResource SurfaceBrush}" Padding="3">
         <Grid>
          <TextBox x:Name="Composer" MinHeight="70" MaxHeight="140" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="Transparent" BorderThickness="0" FontSize="15" Padding="14" PreviewKeyDown="Composer_PreviewKeyDown" TextChanged="Composer_TextChanged" GotKeyboardFocus="Composer_GotFocus" LostKeyboardFocus="Composer_LostFocus" AutomationProperties.Name="Message your agents" ToolTip="Enter to send; Shift+Enter for a new line."/>

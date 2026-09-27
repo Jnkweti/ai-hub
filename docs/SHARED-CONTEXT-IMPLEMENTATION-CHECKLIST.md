@@ -1,5 +1,7 @@
 # AI Hub shared context implementation checklist
 
+> Historical 0.9.0 checklist: independent review found incomplete lock-release, malformed-ledger and structured-cursor behavior despite the checked items below. See [0.11.0 corrections and verification](RELIABILITY-IMPORTS-0.11.0.md). Capacity is whichever independent limit is reached first, not a guaranteed number of turns. Desktop smoke output is a PASS result, not a detailed interaction log.
+
 Status: completed, verified, installed, and reopened as 0.9.0 on September 27, 2026. Supersedes the uninstalled 0.8.0 candidate. The original 0.7.0 package and production data are backed up; installation preserved all production profile files.
 
 ## Intended behavior

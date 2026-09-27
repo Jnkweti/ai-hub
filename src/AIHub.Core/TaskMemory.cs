@@ -46,6 +46,11 @@ public sealed class TaskMemory
         }
         // Loading never launches or reassigns an interrupted worker.
         Persist();
+        var knownLedgers = tasks.Select(t => CollaborationStore.Filename(t.Id)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var orphaned = Directory.EnumerateFiles(store.DirectoryPath, "collaboration-*.json", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName).Where(n => n is not null && !knownLedgers.Contains(n)).ToArray();
+        if (orphaned.Length > 0)
+            store.RecoveryNotices.Add($"Preserved {orphaned.Length} collaboration ledger(s) without a valid task. Review the data folder and tasks.json recovery backup; these ledgers will not be replayed or deleted automatically.");
     }
     private static WorkTask Copy(WorkTask task) => JsonSerializer.Deserialize<WorkTask>(JsonSerializer.Serialize(task))!;
     public WorkTask? Get(string id) { lock (gate) return tasks.FirstOrDefault(t => t.Id == id) is { } task ? Copy(task) : null; }

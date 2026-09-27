@@ -22,6 +22,7 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     public async Task ConnectAsync(CancellationToken token)
     {
         if (wire is { Alive: true }) return;
+        if (wire is not null) await wire.DisposeAsync();
         wire = new(); wire.Message += Handle;
         wire.Diagnostic += s => Emit(EventKind.Status, s);
         wire.Failed += ex => { requests.CancelAll(); turn?.TrySetException(ex); Emit(EventKind.Error, ex.Message); };
@@ -32,7 +33,7 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
         else if (!options.AllowEdits) args.AddRange(["--tools", "Read,Glob,Grep,AskUserQuestion"]);
         if (options.Collaboration is { } collaboration)
             args.AddRange(["--strict-mcp-config", "--mcp-config", collaboration.ClaudeConfiguration(),
-                "--allowedTools", "mcp__ai_hub__get_task_context,mcp__ai_hub__submit_message,mcp__ai_hub__get_messages,mcp__ai_hub__get_evidence,mcp__ai_hub__mark_addressed,mcp__ai_hub__get_shared_context,mcp__ai_hub__publish_context,mcp__ai_hub__get_context_records,mcp__ai_hub__read_context_record,mcp__ai_hub__claim_work,mcp__ai_hub__complete_work,mcp__ai_hub__get_work"]);
+                "--allowedTools", "mcp__ai_hub__get_task_context,mcp__ai_hub__submit_message,mcp__ai_hub__get_messages,mcp__ai_hub__get_evidence,mcp__ai_hub__mark_addressed,mcp__ai_hub__get_shared_context,mcp__ai_hub__publish_context,mcp__ai_hub__get_context_records,mcp__ai_hub__read_context_record,mcp__ai_hub__read_context_source,mcp__ai_hub__claim_work,mcp__ai_hub__complete_work,mcp__ai_hub__get_work"]);
         else if (!options.AllowEdits && !options.PreparationOnly) args.AddRange(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}"]);
         if (SessionId is not null) args.Add("--resume=" + SessionId);
         if (!string.IsNullOrWhiteSpace(options.Model)) args.AddRange(["--model", options.Model]);

@@ -1,5 +1,8 @@
 # Shared context redesign — 0.9.0
 
+> September 27 correction: independent verification found that the original 0.9.0 outside-lock hashing, malformed-ledger preservation and structured delivery-cursor claims below were incomplete. These are corrected in 0.11.0; see RELIABILITY-IMPORTS-0.11.0.md. Storage bounds are independent: the first reached applies, and full prompt manifests can fill the 8 MiB ledger before their count limit. This historical release did not include 0.10 concurrent preparation or shared work.
+
+
 The host owns durable task state; providers retain separate inference contexts. New user phases start fresh native sessions reconstructed from active original user instructions, attributed conversation, assignments, review findings, and shared research. Within-phase continuity remains native. Context tools retrieve omitted originals. Both read-only researchers receive the same frozen common core with different assignments; synthesis receives their findings automatically.
 
 Original instructions are never silently dropped. User pin/replacement controls preserve superseded history and stop affected work before changing authoritative state. Agents have no pin/replacement tool. Conflicting agent claims remain attributed. Existing task notes are retained rather than silently removing older notes. A context version or current-file hash is not a correctness certificate.

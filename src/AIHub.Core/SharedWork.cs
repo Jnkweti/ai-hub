@@ -42,19 +42,19 @@ public sealed partial class CollaborationStore
         }
         return new(files, focus.Select(p => WorkString(p, 500)).ToArray());
     }
-    private static (string Fingerprint, bool Complete) WorkSnapshot(string workspace, string kind, CollaborationScope scope, CancellationToken token)
+    private (string Fingerprint, bool Complete) WorkSnapshot(string workspace, string kind, CollaborationScope scope, CancellationToken token)
     {
         if (kind == "check") { var s = CaptureSnapshot(workspace, token); return (s.Fingerprint, s.Complete); }
         var scoped = CaptureContextAsync(workspace, scope, token).GetAwaiter().GetResult();
         return (scoped.Fingerprint, scoped.Reusable);
     }
-    private JsonNode ClaimWork(WorkTask task, CollaborationDocument original, CollaborationDispatch dispatch, JsonNode? args, CancellationToken token)
+    private JsonNode ClaimWork(WorkTask task, CollaborationDocument original, CollaborationDispatch dispatch, JsonNode? args, CancellationToken token, (string Fingerprint, bool Complete) snapshot)
     {
         WorkFields(args, "kind", "operation", "scope", "reusable", "independent");
         var kind = WorkString(args!["kind"], 16); var operation = WorkString(args["operation"], 2000).Trim();
         if (kind is not ("discovery" or "check")) throw new CollaborationValidationException("Work kind must be discovery or check.");
         var scope = WorkScope(args["scope"], task.Workspace); var reusable = WorkBool(args["reusable"]); var independent = WorkBool(args["independent"]);
-        var snapshot = WorkSnapshot(task.Workspace, kind, scope, token); var environment = WorkEnvironment();
+        var environment = WorkEnvironment();
         var key = TaskContextBuilder.Fingerprint(JsonSerializer.Serialize(new { kind, operation, scope, snapshot.Fingerprint,
             environment = kind == "check" ? environment : "", generation = kind == "check" ? dispatch.Claim.Generation : 0 }));
         var retry = original.SharedWork.LastOrDefault(w => w.Key == key && w.DispatchId == dispatch.Id && w.Independent == independent && w.State == "running");
@@ -73,7 +73,7 @@ public sealed partial class CollaborationStore
         var changed = Copy(original); changed.SharedWork.Add(work); token.ThrowIfCancellationRequested(); Save(changed);
         return WorkReceipt("claimed", work);
     }
-    private JsonNode CompleteWork(WorkTask task, CollaborationDocument original, CollaborationDispatch dispatch, JsonNode? args, CancellationToken token)
+    private JsonNode CompleteWork(WorkTask task, CollaborationDocument original, CollaborationDispatch dispatch, JsonNode? args, CancellationToken token, (string Fingerprint, bool Complete) snapshot)
     {
         WorkFields(args, "work_id", "summary", "evidence_refs");
         var id = WorkString(args!["work_id"], 32); var summary = WorkString(args["summary"], 4000);
@@ -90,12 +90,11 @@ public sealed partial class CollaborationStore
         if (work.State != "running") throw new CollaborationValidationException("This work claim is closed.");
         var observed = evidence.Select(e => original.Evidence.SingleOrDefault(v => v.Id == e && v.DispatchId == dispatch.Id && v.Finished)
             ?? throw new CollaborationValidationException("Evidence must be a finished native observation from this dispatch.")).ToArray();
-        var snapshot = WorkSnapshot(task.Workspace, work.Kind, work.Scope, token);
         var stable = snapshot.Complete && work.Fingerprint == snapshot.Fingerprint && work.EnvironmentHash == WorkEnvironment();
         var success = true;
         if (work.Kind == "check")
         {
-            var matching = observed.Where(e => e.Command.Trim() == work.Operation && e.Tool == "command").ToArray();
+            var matching = observed.Where(e => e.Command.Trim() == work.Operation && e.Tool is "command" or "Bash" or "PowerShell").ToArray();
             if (matching.Length == 0) throw new CollaborationValidationException("A check requires captured native command evidence matching its exact operation.");
             success = matching.All(e => e.ExitCode == 0 && e.IsError != true);
             var current = new CollaborationSnapshot("", snapshot.Fingerprint, snapshot.Complete, "", "", DateTimeOffset.UtcNow);

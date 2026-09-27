@@ -20,7 +20,7 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 ## Interface
 
-Version **0.8.0** includes the shared-participation correction developed in the 0.7.1 candidate. Both selected agents get an opportunity to contribute without an explicit handoff, the starting agent rotates on unaddressed follow-ups, and routine status receipts remain in task history. Quiet peer checks and parallel context gathering are described in [release verification](docs/SHARED-CONTEXT-0.8.0.md).
+Version **0.9.0** includes the shared-participation correction developed in the 0.7.1 candidate. Both selected agents get an opportunity to contribute without an explicit handoff, the starting agent rotates on unaddressed follow-ups, and routine status receipts remain in task history. Quiet peer checks and parallel context gathering are described in [release verification](docs/SHARED-CONTEXT-0.8.0.md).
 
 The v0.3 mission-control interface pairs a graphite and teal workspace with a copper identity for Claude, bundled Sora and IBM Plex fonts, open conversation surfaces, and a focused composer. The collaboration instrument shows actual agent states, current actions, automatic round counts, and directional handoffs. It remains visible when the activity timeline is closed.
 
@@ -42,7 +42,7 @@ Drafts and recipients are saved per conversation; reopening AI Hub restores your
 
 Use **Archive conversation** to keep a conversation while removing it from the active list. Choose **Archived conversations** above the sidebar list to find it again; search works within the selected view. Archived conversations remain readable and exportable, with their drafts and recipients intact. **Restore to continue** returns one to the active list without starting the agents.
 
-**Delete** asks for confirmation before permanently removing the selected conversation's local AI Hub transcript, draft, and matching activity log. Project files, other conversations, and the providers' own account/session history are kept. Archiving or deleting a working conversation first cancels its agents and pending approvals. AI Hub selects another active conversation afterward, or creates an empty one when none remain. Canceling the deletion keeps the current work running.
+**Delete** asks for confirmation before permanently removing the selected conversation's local AI Hub transcript, draft, tasks, notes, collaboration ledgers, saved long-message sources, and matching activity log. Project files, other conversations, and the providers' own account/session history are kept. Archiving or deleting a working conversation first cancels its agents and pending approvals. AI Hub selects another active conversation afterward, or creates an empty one when none remain. Canceling the deletion keeps the current work running.
 
 ## Shared project status
 
@@ -102,15 +102,23 @@ The default **discussion mode** gives Codex a read-only sandbox and restricts Cl
 
 The activity feed groups tool calls and output into actions and shows plan updates and approval requests. Provider usage and routine connection events are available through **Show diagnostics**. Permission cards in the chat offer **Allow once** or **Decline**. Codex uses its native `on-request` approval policy; that policy can permit ordinary workspace actions without asking. Claude uses its `manual` permission mode for project edits. Existing CLI configuration, instructions, hooks, and project files still affect the agents' behavior.
 
-This version supports **text chat**, not microphone or audio calling. It shows outward messages and tool activity, not private model reasoning. Each structured dispatch receives a common task core of at most 48,000 UTF-8 bytes and assignment detail, with a 112,000-byte limit on the complete host prompt. These bounds exclude provider system instructions, tool definitions, and within-phase native history. Active user instructions are preserved in full or dispatch stops; optional omissions and research excerpts are labeled and retrievable. Exact host prompts are saved before dispatch. The window retains up to 200 actions and 200 recent diagnostic events separately; received activity continues to be appended to disk. Long action output has a shortened preview with complete recorded content in the full log. Old activity is not replayed when reopening a room.
+This version supports **text chat**, not microphone or audio calling. It shows outward messages and tool activity, not private model reasoning. Each structured dispatch receives a common task core of at most 48,000 UTF-8 bytes and assignment detail, with a 112,000-byte limit on the complete host prompt. These bounds exclude provider system instructions, tool definitions, and within-phase native history. Long user messages are saved intact as shared sources with bounded previews and exact section retrieval. Ordinary active instructions stay in full; if those exceed the common budget, dispatch stops explicitly. Optional omissions and excerpts are labeled. Exact host prompts are saved before dispatch. The window retains up to 200 actions and 200 recent diagnostic events separately; received activity continues to be appended to disk. Long action output has a shortened preview with complete recorded content in the full log. Old activity is not replayed when reopening a room.
 
 ## Local data
+
+Use **Import files** above the composer to copy one or more files into the current conversation's project folder. File references are added to your saved draft; add your question and send when ready. Existing names receive a numbered suffix, and files already in that folder are referenced directly. Imports preserve file bytes; they do not convert PDF, Office, image or audio formats. What the models can read depends on their native tools. Imported project files remain when a conversation is deleted.
+
+Version **0.11.0** also supports large pasted transcripts: the full message is saved as a task-scoped source, and both models can search it or retrieve exact sections through `read_context_source`. A preview is never counted as the full message being delivered. This fixes the oversized-message failure without requiring a new conversation. See [reliability and imports verification](docs/RELIABILITY-IMPORTS-0.11.0.md).
 
 Saved under `%LOCALAPPDATA%\AIHub`:
 
 - `settings.json`: project folder, model/executable preferences, and collaboration settings.
 - `rooms.json`: active and archived conversations, drafts, provider session identifiers, and per-agent shared-message cursors.
 - `activity-<room-id>.jsonl`: activity events and agent handoffs.
+- `tasks.json`: task objectives, notes, ownership and run state.
+- `collaboration-<task-id>.json`: task context, assignments, evidence and full host input prompts in plaintext.
+- `source-<task-id>-<hash>.json`: exact long-message originals, checked against their recorded hash when retrieved.
+- `instance.lock`: exclusive application ownership of this profile.
 - `project-status/<workspace-hash>/report.json`: latest validated status report, source conversation, configuration, fingerprints and provider usage. An adjacent `inspection.lock` enforces one status owner across processes sharing this data directory.
 
 These files contain conversation and tool content in plain text. Native CLI session history remains in each provider's usual storage. `AIHUB_DATA_DIR` can override AI Hub's data directory for isolated testing.
