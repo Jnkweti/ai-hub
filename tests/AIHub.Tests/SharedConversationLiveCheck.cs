@@ -23,6 +23,9 @@ internal static class SharedConversationLiveCheck
                 starts.Add(agent); var options = new AgentOptions(workspace, false) { Collaboration = host };
                 return agent == Agent.Codex ? new CodexClient(options, sessions.GetValueOrDefault(agent)) : new ClaudeClient(options, sessions.GetValueOrDefault(agent));
             },
+            PreparationFactory = agent => agent == Agent.Codex
+                ? new CodexClient(new AgentOptions(workspace, false) { PreparationOnly = true })
+                : new ClaudeClient(new AgentOptions(workspace, false) { PreparationOnly = true }),
             RequestApproval = (_, _) => Task.FromResult(new Decision(false))
         };
         hub.Event += e =>
@@ -48,7 +51,13 @@ internal static class SharedConversationLiveCheck
                 throw new IOException("Legacy control sign-off leaked into ordinary discussion.");
             foreach (var pair in oldSessions) if (sessions.GetValueOrDefault(pair.Key) == pair.Value) throw new IOException("New phase reused a native session for " + pair.Key);
             var inputs = store.Read(id).ContextInputs.Where(i => i.Generation == memory.Get(id)!.Generation).ToArray();
-            if (inputs.Length != 2 || inputs.Any(i => !i.Prompt.Contains("offline-first") || i.Outcome != "responded")) throw new IOException("Fresh phase lost original constraints or input evidence");
+            if (inputs.Length != 3 || inputs.Any(i => !i.Prompt.Contains("offline-first") || i.Outcome != "responded")) throw new IOException("Fresh phase lost original constraints or preparation/input evidence");
+            var doc = store.Read(id); var prepAssignment = doc.Assignments.Single(a => a.Generation == memory.Get(id)!.Generation && a.Role == "preparation");
+            var prepInput = inputs.Single(i => i.DispatchId == prepAssignment.Id);
+            var leadInput = inputs.Single(i => i.Agent != prepAssignment.Agent);
+            var followInput = inputs.Single(i => i.Agent == prepAssignment.Agent && i.DispatchId != prepAssignment.Id);
+            if (prepAssignment.State != "completed" || prepInput.CommonHash != leadInput.CommonHash || prepInput.NativeSession != followInput.NativeSession ||
+                !followInput.Prompt.Contains("PRECEDING AGENT RESPONSE")) throw new IOException("Native preparation did not reconcile in the same session");
             replies.Add(new { prompt, speakers = starts.Skip(before).Select(a => a.ToString()).ToArray(), reported, elapsedSeconds = timer.Elapsed.TotalSeconds, providerCalls = inputs.Length, hostInputBytes = inputs.Sum(i => i.InputBytes), sessions = sessions.ToDictionary() });
             Console.WriteLine("PASS both respond to an unaddressed user message: " + string.Join(", ", starts.Skip(before)));
             File.WriteAllText(Path.Combine(output, "results.json"), JsonSerializer.Serialize(replies, new JsonSerializerOptions { WriteIndented = true }));

@@ -30,6 +30,9 @@ internal static class SharedContextLiveCheck
                 IAgentClient client = agent == Agent.Codex ? new CodexClient(options) : new ClaudeClient(options);
                 return new Tracked(client, (start, end) => intervals[agent] = (start, end));
             },
+            PreparationFactory = agent => agent == Agent.Codex
+                ? new CodexClient(new AgentOptions(project, false) { PreparationOnly = true })
+                : new ClaudeClient(new AgentOptions(project, false) { PreparationOnly = true }),
             RequestApproval = (_, _) => Task.FromResult(new Decision(false))
         };
         hub.Event += e => { events.Enqueue(e); if (e.Kind == EventKind.Session) sessions[e.Agent] = e.Text; if (e.Kind == EventKind.Error) Console.WriteLine(e.Text); };
@@ -48,6 +51,7 @@ internal static class SharedContextLiveCheck
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (memory.Get(id)!.State != WorkState.Ready || doc.ContextSections.Count != 2 || intervals.Count != 2)
             throw new IOException("Native split context failed: " + memory.Get(id)!.Reason);
+        if (mainStarts.Count != 2) throw new IOException("Research scheduled an unnecessary general peer turn.");
         var times = intervals.Values.ToArray();
         if (times.Max(t => t.Start) >= times.Min(t => t.End)) throw new IOException("Native researchers did not overlap");
         if (before.Fingerprint != after.Fingerprint || doc.ContextSections.Any(s => CollaborationStore.ContextFreshness(s, after) != "Current files"))

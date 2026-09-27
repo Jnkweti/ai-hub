@@ -2,6 +2,10 @@
 
 AI Hub is a native .NET 10 WPF application. Owned child processes host independent agent sessions reconstructed from durable task context at each user work phase; native continuity remains within a phase. Status tasks use isolated workers and shared reports. No browser server, external database, or embedded credentials are needed.
 
+Version 0.10 starts the waiting agent's tool-restricted preparation alongside the first speaker, then supplies the first response and latest context before that agent's speaking turn. Execution ownership remains separate from preparation and speaking order. Task-bound shared work claims support conservative reuse backed by captured evidence; independent review still requires fresh evidence. Identical scoped snapshots are reused only within one context rendering operation. See [the 0.10 design and verification](CONCURRENT-COLLABORATION-0.10.0.md).
+
+The collaboration pipe accepts up to four authenticated connections for one dispatch so provider resume initialization does not block behind an existing connection. All connections retain the same task/provider/session/generation authority and shared call/repair limits. Shutdown explicitly disconnects each instance and joins its serving task.
+
 ```mermaid
 flowchart LR
     U[You] --> UI[Shared chat and controls]

@@ -47,21 +47,41 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
         "{command=" + JsonSerializer.Serialize(BridgeExecutable) + ",args=[],env_vars=[\"AIHUB_COLLAB_PIPE\",\"AIHUB_COLLAB_TOKEN\"],required=true,enabled=true,default_tools_approval_mode=\"approve\"}"];
     internal string ClaudeConfiguration() => JsonSerializer.Serialize(new { mcpServers = new
     { ai_hub = new { type = "stdio", command = BridgeExecutable, args = Array.Empty<string>() } } });
-    internal static bool IsTool(string name) => name is "mcp__ai_hub__get_task_context" or "mcp__ai_hub__submit_message" or "mcp__ai_hub__get_messages" or "mcp__ai_hub__get_evidence" or "mcp__ai_hub__mark_addressed" or "mcp__ai_hub__get_shared_context" or "mcp__ai_hub__publish_context" or "mcp__ai_hub__get_context_records" or "mcp__ai_hub__read_context_record";
+    internal static bool IsTool(string name) => name is "mcp__ai_hub__get_task_context" or "mcp__ai_hub__submit_message" or "mcp__ai_hub__get_messages" or "mcp__ai_hub__get_evidence" or "mcp__ai_hub__mark_addressed" or "mcp__ai_hub__get_shared_context" or "mcp__ai_hub__publish_context" or "mcp__ai_hub__get_context_records" or "mcp__ai_hub__read_context_record" or "mcp__ai_hub__claim_work" or "mcp__ai_hub__complete_work" or "mcp__ai_hub__get_work";
     private async Task ServeAsync()
     {
+        using var slots = new SemaphoreSlim(4, 4);
+        var connections = new List<Task>();
         try
         {
             while (!life.IsCancellationRequested)
             {
-                await using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+                await slots.WaitAsync(life.Token).ConfigureAwait(false);
+                var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                await pipe.WaitForConnectionAsync(life.Token).ConfigureAwait(false);
-                try { await ServeConnectionAsync(pipe).ConfigureAwait(false); }
-                catch (Exception ex) when (ex is IOException or JsonException or TimeoutException or OperationCanceledException) { }
+                try { await pipe.WaitForConnectionAsync(life.Token).ConfigureAwait(false); }
+                catch { pipe.Dispose(); slots.Release(); throw; }
+                connections.RemoveAll(t => t.IsCompletedSuccessfully);
+                connections.Add(ServeOwned(pipe));
             }
         }
         catch (OperationCanceledException) when (life.IsCancellationRequested) { }
+        finally { await life.CancelAsync().ConfigureAwait(false); await Task.WhenAll(connections).ConfigureAwait(false); }
+        async Task ServeOwned(NamedPipeServerStream pipe)
+        {
+            await using (pipe)
+            {
+                try { await ServeConnectionAsync(pipe).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is IOException or JsonException or TimeoutException or OperationCanceledException) { }
+                finally
+                {
+                    // Disconnect each instance explicitly before closing it so every bridge observes EOF,
+                    // including when another instance of this pipe name remains connected.
+                    try { if (pipe.IsConnected) pipe.Disconnect(); } catch (IOException) { }
+                    slots.Release();
+                }
+            }
+        }
     }
     private async Task ServeConnectionAsync(Stream pipe)
     {

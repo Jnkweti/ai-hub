@@ -15,6 +15,7 @@ internal sealed class ConversationPreparation : IAsyncDisposable
         append legacy control phrases. Preparation does not claim ownership of execution work.
         """;
     private readonly CancellationTokenSource lifetime;
+    private int disposed;
     internal Task<PreparedContribution?> Completion { get; }
     internal Agent Agent { get; }
     internal ConversationPreparation(CollaborationStore store, TaskClaim claim, Agent agent, CommonContext common,
@@ -32,7 +33,13 @@ internal sealed class ConversationPreparation : IAsyncDisposable
             {
                 await using var client = factory(agent);
                 client.RequestApproval = (_, _) => Task.FromResult(new Decision(false));
-                client.Event += e => { if (!lifetime.IsCancellationRequested && e.Kind is EventKind.Usage) emit(e); };
+                client.Event += e =>
+                {
+                    // Adapter tool restrictions are the primary boundary. Never accept a draft if a provider
+                    // unexpectedly reports tool execution despite that configuration.
+                    if (e.Kind == EventKind.Tool) lifetime.Cancel();
+                    if (!lifetime.IsCancellationRequested && e.Kind is EventKind.Usage) emit(e);
+                };
                 emit(new(agent, EventKind.Status, "Preparing contribution"));
                 var text = Instructions + "\n\n" + common.Text + "\nCURRENT USER MESSAGE:\n" + prompt;
                 input = store.PrepareInput(claim, agent, id, common, text);
@@ -49,13 +56,14 @@ internal sealed class ConversationPreparation : IAsyncDisposable
                 var state = lifetime.IsCancellationRequested ? "interrupted" : "failed";
                 if (input is not null) store.FinishInput(claim, input.Id, state, null);
                 store.FinishAssignment(claim, id, state);
-                if (!token.IsCancellationRequested) emit(new(agent, EventKind.Status, "Preparation unavailable; will use current context: " + ex.Message));
+                if (!lifetime.IsCancellationRequested) emit(new(agent, EventKind.Status, "Preparation unavailable; will use current context: " + ex.Message));
                 return null;
             }
         }, CancellationToken.None);
     }
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         await lifetime.CancelAsync();
         try { await Completion; } finally { lifetime.Dispose(); }
     }

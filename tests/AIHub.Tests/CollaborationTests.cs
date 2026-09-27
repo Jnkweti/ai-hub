@@ -168,6 +168,10 @@ internal static class CollaborationTests
             await using var rpc = await ProbeWire.Connect(host, f.DirectoryPath, timeout.Token);
             var tools = await rpc.Call("tools/list", new JsonObject(), timeout.Token);
             Check(tools["tools"]!.AsArray().Count == 2, "Wrong probe tools");
+            // A provider may initialize a resumed session while keeping its first MCP connection open.
+            await using var resumed = await ProbeWire.Connect(host, f.DirectoryPath, timeout.Token);
+            var resumedContext = await resumed.Tool("get_task_context", new JsonObject(), timeout.Token);
+            Check(resumedContext.Str("task_id") == f.Claim.TaskId, "Concurrent bridge connection could not initialize");
             var schema = tools["tools"]![1]!["inputSchema"];
             Check(JsonNode.DeepEquals(schema, CollaborationContract.SubmissionSchema()), "Exposed schema drifted");
             try { await rpc.Call("tools/call", new JsonArray(), timeout.Token); throw new Exception("Invalid RPC params accepted"); }

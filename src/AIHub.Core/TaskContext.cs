@@ -47,6 +47,8 @@ public static class TaskContextBuilder
         }
         body.AppendLine("ASSIGNMENTS AND DEPENDENCIES:");
         foreach (var work in document.Assignments.OrderByDescending(w => w.State == "running").ThenByDescending(w => w.Updated).Take(12)) Optional("work:" + work.Id, work);
+        body.AppendLine("SHARED WORK (historical claims/results; claim_work checks reuse eligibility):");
+        foreach (var work in document.SharedWork.AsEnumerable().Reverse().Take(12)) Optional("shared-work:" + work.Id, work);
         body.AppendLine("SHARED RESEARCH (agent reports; freshness concerns scoped files, not conclusions):");
         foreach (var section in document.ContextSections.AsEnumerable().Reverse())
         {
@@ -148,9 +150,10 @@ public sealed partial class CollaborationStore
         // Hash outside state locks so progress inspection and cancellation remain responsive.
         token.ThrowIfCancellationRequested();
         var freshness = new Dictionary<string, string>();
+        var captures = new ContextSnapshotBatch(snapshot.Workspace, token);
         foreach (var section in snapshot.Document.ContextSections)
         {
-            try { freshness[section.Id] = ContextFreshness(section, CaptureContextAsync(snapshot.Workspace, section.Scope, token).GetAwaiter().GetResult()); }
+            try { freshness[section.Id] = ContextFreshness(section, captures.Capture(section.Scope).GetAwaiter().GetResult()); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CollaborationValidationException) { freshness[section.Id] = "Unavailable: " + ex.Message; }
         }
         return TaskContextBuilder.Build(snapshot.Document, snapshot.Objective, freshness);
@@ -187,7 +190,7 @@ public sealed partial class CollaborationStore
         return changed;
     }
     private static string ContextStateFingerprint(CollaborationDocument document) => TaskContextBuilder.Fingerprint(JsonSerializer.Serialize(new {
-        document.ContextRecords, document.Assignments, document.ContextSections, document.Entries, document.Findings,
+        document.ContextRecords, document.Assignments, document.ContextSections, document.Entries, document.Findings, document.SharedWork,
         evidence = document.Evidence.Where(e => e.Finished).Select(e => new { e.Id, e.ExitCode, e.SnapshotRef })
     }));
     private static void ValidateTaskContext(CollaborationDocument document, WorkTask task)
@@ -266,6 +269,8 @@ public sealed partial class CollaborationStore
         foreach (var r in document.ContextRecords.Where(r => superseded.Contains(r.Id))) text.AppendLine($"{r.Id}\n{r.Text}\n");
         text.AppendLine("Assignments:");
         foreach (var a in document.Assignments.TakeLast(16)) text.AppendLine($"{a.Agent} · {a.Role} · {a.State}\n{a.Goal}\nDepends on: {string.Join(", ", a.Dependencies)}\nCompletion condition: {a.DoneWhen}\n");
+        text.AppendLine("Shared work (recorded results; current reuse requires a fresh claim check):");
+        foreach (var w in document.SharedWork.TakeLast(24)) text.AppendLine($"{w.Id} · {w.Owner} · {w.Kind} · {w.State}\n{w.Operation}\n{w.Summary}\nReusable when inputs match: {w.Reusable}; independent: {w.Independent}\nEvidence: {string.Join(", ", w.EvidenceRefs)}\n");
         text.AppendLine("Recent exact host inputs (supplied does not mean understood; native system instructions/tools/history are separate):");
         foreach (var input in document.ContextInputs.TakeLast(6)) text.AppendLine($"{input.Agent} · version {input.Revision} · {input.Outcome} · {input.InputBytes} UTF-8 bytes\nCommon hash: {input.CommonHash}\nPrompt hash: {input.PromptHash}\nIncluded IDs: {string.Join(", ", input.IncludedIds)}\nPartial IDs: {string.Join(", ", input.PartialIds ?? [])}\nOmitted IDs: {string.Join(", ", input.OmittedIds)}\n--- HOST INPUT ---\n{input.Prompt}\n--- END INPUT ---\n");
         return text.ToString();

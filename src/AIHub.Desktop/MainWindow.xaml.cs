@@ -124,7 +124,10 @@ public partial class MainWindow : Window
                 : new ClaudeClient(claudeOptions with { Collaboration = connection }, room.ClaudeSession),
             ContextResearchFactory = (agent, connection) => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { AllowEdits = false, Collaboration = connection })
-                : new ClaudeClient(claudeOptions with { AllowEdits = false, Collaboration = connection })
+                : new ClaudeClient(claudeOptions with { AllowEdits = false, Collaboration = connection }),
+            PreparationFactory = agent => agent == Agent.Codex
+                ? new CodexClient(codexOptions with { AllowEdits = false, PreparationOnly = true })
+                : new ClaudeClient(claudeOptions with { AllowEdits = false, PreparationOnly = true })
         };
         var worker = new RoomWorker(room, coordinator); workers.Add(room.Id, worker);
         activity = worker.Activity; streaming = worker.Streaming;
@@ -260,6 +263,7 @@ public partial class MainWindow : Window
         {
             if (item.Text == "Working") SetAgentState(item.Agent, "Thinking", true);
             else if (item.Text == "Listening") SetAgentState(item.Agent, "Listening", false);
+            else if (item.Text is "Preparing contribution" or "Prepared; waiting to speak") SetAgentState(item.Agent, item.Text, item.Text == "Preparing contribution");
             else if (item.Text == "Standby") SetAgentState(item.Agent, "Standby", false);
             else if (item.Text == "Ready") SetAgentState(item.Agent, "Ready", false);
             else if (item.Text is "Gathering context" or "Context saved" or "Reviewed; nothing to add") SetAgentState(item.Agent, item.Text, item.Text == "Gathering context");

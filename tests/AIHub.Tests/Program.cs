@@ -2,6 +2,11 @@ using AIHub.Core;
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 
+// Fixture workspaces under ignored artifacts are independent projects, not children of the source repository.
+var fixtureCeiling = Path.Combine(CollaborationTests.Root, "artifacts");
+Environment.SetEnvironmentVariable("GIT_CEILING_DIRECTORIES", string.Join(Path.PathSeparator,
+    new[] { fixtureCeiling, Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), Environment.GetEnvironmentVariable("GIT_CEILING_DIRECTORIES") }.Where(s => !string.IsNullOrEmpty(s))));
+
 if (args.Length == 2 && args[0] == "--collaboration-export")
 { CollaborationTests.Export(args[1]); return; }
 if (args.Length == 2 && args[0] == "--collaboration-live")
@@ -16,6 +21,8 @@ if (args.Length == 2 && args[0] == "--quiet-peer-live")
 { await SharedConversationLiveCheck.Run(args[1], conciseOnly: true); return; }
 if (args.Length == 2 && args[0] == "--shared-context-live")
 { await SharedContextLiveCheck.Run(args[1]); return; }
+if (args.Length == 2 && args[0] == "--shared-work-live")
+{ await SharedWorkLiveCheck.Run(args[1]); return; }
 if (args.Length == 1 && args[0] == "--collaboration-tests")
 {
     await CollaborationTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return;
@@ -26,6 +33,8 @@ if (args.Length == 1 && args[0] == "--shared-context-tests")
 { await SharedContextTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
 if (args.Length == 1 && args[0] == "--task-context-tests")
 { await TaskContextTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
+if (args.Length == 1 && args[0] == "--concurrent-work-tests")
+{ await ConcurrentWorkTests.Run(async (name, test) => { await test(); Console.WriteLine("PASS " + name); }); return; }
 
 if (args.Length == 2 && args[0] == "--wire-audit")
 {
@@ -384,6 +393,7 @@ await CollaborationTests.Run(Test);
 await CollaborationRoutingTests.Run(Test);
 await SharedContextTests.Run(Test);
 await TaskContextTests.Run(Test);
+await ConcurrentWorkTests.Run(Test);
 await CollaborationEvidenceTests.Run(Test);
 Console.WriteLine($"\n{passed} tests passed.");
 
