@@ -11,6 +11,15 @@ internal static class ReliabilityTests
     { try { action(); } catch (Exception e) when (e is IOException or InvalidOperationException or OperationCanceledException or CollaborationValidationException) { return; } throw new Exception("Invalid operation accepted"); }
     public static async Task Run(Func<string, Func<Task>, Task> test)
     {
+        await test("atomic saves tolerate a brief external reader without losing prior state", async () =>
+        {
+            using var f = new Fixture(); f.Local.Save("sharing.json", "original");
+            var held = new FileStream(Path.Combine(f.Root, "sharing.json"), FileMode.Open, FileAccess.Read, FileShare.Read);
+            var save = Task.Run(() => f.Local.Save("sharing.json", "replacement"));
+            try { await Task.Delay(80); } finally { held.Dispose(); }
+            await save;
+            Check(f.Local.Load("sharing.json", () => "missing") == "replacement" && Directory.GetFiles(f.Root, "sharing.json.*.tmp").Length == 0, "Transient reader lost saved state or temp cleanup");
+        });
         foreach (var tool in new[] { "Bash", "PowerShell" })
         foreach (var exit in new int?[] { 0, null, 1 })
         await test($"Claude {tool} check evidence preserves exit status {exit?.ToString() ?? "unknown"}", () =>

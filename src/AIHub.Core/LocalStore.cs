@@ -51,10 +51,24 @@ public sealed class LocalStore
                     JsonSerializer.Serialize(stream, value, Format);
                     stream.Flush(flushToDisk: true);
                 }
-                RejectLink(path);
-                File.Move(temp, path, true);
+                Replace(temp, path);
             }
             finally { if (File.Exists(temp)) File.Delete(temp); }
+        }
+    }
+    private static void Replace(string temp, string path)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            RejectLink(path);
+            try { File.Move(temp, path, true); return; }
+            catch (Exception ex) when (OperatingSystem.IsWindows() && attempt < 6 && File.Exists(path) &&
+                ex is IOException or UnauthorizedAccessException && (ex.HResult & 0xffff) is 5 or 32 or 33)
+            {
+                // External readers and antivirus can briefly hold the destination without delete sharing.
+                // Keep the original and prepared temp intact; permanent failures still roll back normally.
+                Thread.Sleep(Math.Min(10 << attempt, 100));
+            }
         }
     }
     public void AppendActivity(string room, AgentEvent value)

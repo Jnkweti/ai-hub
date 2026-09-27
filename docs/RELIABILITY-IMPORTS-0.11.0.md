@@ -12,6 +12,7 @@ Both providers and read-only researchers receive the source ID and hash. `read_c
 - Freshness hashing and source reads run outside task/store state locks; ownership is checked again before committing or returning results. Main dispatch work starts off the desktop thread.
 - Completed, unreferenced evidence is pruned at the 256-record limit. If every record is referenced or unfinished, the observation is explicitly omitted instead of terminating the provider. Counters expose pruning and omissions. Snapshot storage expires older entries at 1,024; a missing snapshot makes historical evidence unverifiable, never fresh.
 - Invalid JSON ledgers are preserved and blocked. Orphaned ledgers remain saved with a recovery notice.
+- Atomic replacement tolerates short Windows sharing conflicts with bounded retries (at most 350 ms of backoff); persistent failures preserve the original and retain rollback behavior.
 - Codex retains multiple outward messages and treats provider interruption as a failure unless the user actually cancelled.
 - Cleanup observes failed prior runs and disposes replaced dead connections. Tool failures return errors without killing the bridge listener.
 - Structured delivery cursors reflect supplied complete records, not a discarded legacy prompt. Long preceding replies are bounded. Unicode context uses UTF-8 instead of unnecessary ASCII escapes; superseded objectives are not repeated.
