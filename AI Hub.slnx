@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/AIHub.Core/AIHub.Core.csproj" />
+  <Project Path="src/AIHub.McpBridge/AIHub.McpBridge.csproj" />
+  <Project Path="src/AIHub.Desktop/AIHub.Desktop.csproj" />
+  <Project Path="tests/AIHub.Tests/AIHub.Tests.csproj" />
+</Solution>

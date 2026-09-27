@@ -1,0 +1,11 @@
+[
+  {
+    "Id": "appearance-fixture",
+    "Title": "Review the architecture",
+    "Messages": [
+      {"Id":"u1","Speaker":"You","Text":"Review our app and suggest the next improvements.","Route":"Both","Time":"2026-09-24T20:30:00-04:00","Complete":true},
+      {"Id":"c1","Speaker":"Codex","Text":"## A focused path forward\nThe architecture is ready for the next iteration. Here are the **highest-impact improvements**:\n\n- Keep each agent session independent.\n- Make the activity feed easy to inspect.\n- Preserve your ability to interrupt either agent.\n\n> Your latest message always takes priority.\n\n| Area | Next step |\n| --- | --- |\n| Interface | Keep controls predictable |\n| Collaboration | Review each other's results |","Route":"Shared room","Time":"2026-09-24T20:30:03-04:00","Complete":true},
+      {"Id":"a1","Speaker":"Claude","Text":"### Start with the interface\nUse a clear entry point, then verify the result.\n\n```csharp\nawait hub.SubmitAsync(\n    \"Review the project\", \"Both\");\n```\n\nCopy messages as Markdown with the button in each card. **You stay in control.**","Route":"Shared room","Time":"2026-09-24T20:30:06-04:00","Complete":true}
+    ]
+  }
+]

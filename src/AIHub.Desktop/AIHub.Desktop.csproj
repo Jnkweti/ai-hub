@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>AI Hub</AssemblyName>
+    <Version>0.9.0</Version>
+    <ApplicationIcon>Assets\aihub.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIHub.Core\AIHub.Core.csproj" />
+    <Content Include="..\..\plugins\ai-hub-collaboration\**\*" CopyToOutputDirectory="PreserveNewest" TargetPath="plugins\ai-hub-collaboration\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="Assets\aihub.ico" CopyToOutputDirectory="PreserveNewest" TargetPath="aihub.ico" />
+    <Resource Include="Assets\Icons\*.svg" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+    <Content Include="Assets\Icons\LICENSE" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\Lucide.txt" />
+    <Content Include="Assets\Licenses\Markdig.txt" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\Markdig.txt" />
+    <Content Include="Assets\Licenses\Sora.txt" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\Sora.txt" />
+    <Content Include="Assets\Licenses\IBMPlex.txt" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\IBMPlex.txt" />
+    <Content Include="Assets\Licenses\DotNet*.txt" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\%(Filename)%(Extension)" />
+    <Content Include="Assets\Licenses\WindowsDesktop.txt" CopyToOutputDirectory="PreserveNewest" TargetPath="licenses\WindowsDesktop.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.4.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+{
+  "name": "ai-hub-collaboration",
+  "version": "0.9.0",
+  "description": "Focused implementation, review, evidence, and task resumption through AI Hub.",
+  "author": {
+    "name": "AI Hub"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AI Hub Collaboration",
+    "shortDescription": "Implement, review, and resume shared AI Hub tasks.",
+    "longDescription": "Coordinate Codex and Claude using task-bound messages, captured evidence, and focused review workflows.",
+    "developerName": "AI Hub",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Read the current AI Hub task and continue its authorized implementation and review workflow."
+  }
+}

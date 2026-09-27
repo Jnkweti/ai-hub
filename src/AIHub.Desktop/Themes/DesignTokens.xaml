@@ -1,0 +1,33 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <FontFamily x:Key="BodyFont">/AI Hub;component/Assets/Fonts/#IBM Plex Sans</FontFamily>
+ <FontFamily x:Key="DisplayFont">/AI Hub;component/Assets/Fonts/#Sora</FontFamily>
+ <FontFamily x:Key="CodeFont">Cascadia Code, Consolas</FontFamily>
+ <SolidColorBrush x:Key="CanvasBrush" Color="#0A1116"/>
+ <SolidColorBrush x:Key="PanelBrush" Color="#0D191F"/>
+ <SolidColorBrush x:Key="SurfaceBrush" Color="#14242C"/>
+ <SolidColorBrush x:Key="HoverBrush" Color="#1D343D"/>
+ <SolidColorBrush x:Key="LineBrush" Color="#2A3B43"/>
+ <SolidColorBrush x:Key="TextBrush" Color="#E6EDEE"/>
+ <SolidColorBrush x:Key="MutedBrush" Color="#A0B3BA"/>
+ <SolidColorBrush x:Key="CyanBrush" Color="#82DFD1"/>
+ <SolidColorBrush x:Key="ClaudeBrush" Color="#EAB38B"/>
+ <SolidColorBrush x:Key="DangerBrush" Color="#F0A0AC"/>
+ <SolidColorBrush x:Key="AccentInkBrush" Color="#082621"/>
+ <SolidColorBrush x:Key="CodeBrush" Color="#B6E5DC"/>
+ <SolidColorBrush x:Key="SelectionBrush" Color="#315B62"/>
+ <SolidColorBrush x:Key="CodexSurfaceBrush" Color="#16312F"/>
+ <SolidColorBrush x:Key="ClaudeSurfaceBrush" Color="#302820"/>
+ <LinearGradientBrush x:Key="AtmosphereBrush" StartPoint="0,0" EndPoint="0.8,1">
+  <GradientStop Color="#172E34" Offset="0"/>
+  <GradientStop Color="#0D1B22" Offset="0.35"/>
+  <GradientStop Color="#0A1116" Offset="0.8"/>
+ </LinearGradientBrush>
+ <LinearGradientBrush x:Key="InstrumentBrush" StartPoint="0,0" EndPoint="1,0.8">
+  <GradientStop Color="#132A30" Offset="0"/>
+  <GradientStop Color="#101D24" Offset="0.55"/>
+  <GradientStop Color="#211E1C" Offset="1"/>
+ </LinearGradientBrush>
+ <CornerRadius x:Key="ControlRadius">6</CornerRadius>
+ <CornerRadius x:Key="ComposerRadius">12</CornerRadius>
+</ResourceDictionary>

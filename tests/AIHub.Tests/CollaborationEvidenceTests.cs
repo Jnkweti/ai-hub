@@ -1,0 +1,91 @@
+using AIHub.Core;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+internal static class CollaborationEvidenceTests
+{
+    static void Check(bool value, string message) { if (!value) throw new Exception(message); }
+    static void Reject(Action action) { try { action(); } catch (CollaborationValidationException) { return; } throw new Exception("Invalid review accepted"); }
+    sealed class Fixture : IDisposable
+    {
+        public string Root = Path.Combine(CollaborationTests.Root, "artifacts", "evidence-test-" + Guid.NewGuid().ToString("N"));
+        public string Workspace; public TaskMemory Memory; public CollaborationStore Store; public TaskClaim Claim; public LocalStore Local;
+        public Fixture()
+        {
+            Workspace = Path.Combine(Root, "project"); Directory.CreateDirectory(Path.Combine(Workspace, "src")); File.WriteAllText(Path.Combine(Workspace, "src/main.cs"), "before");
+            Local = new(Path.Combine(Root, "data")); Memory = new(Local); var id = Memory.Create("room", Workspace, "Fix and review"); Store = new(Local, Memory); Claim = Memory.Begin(id, true);
+        }
+        public CollaborationDispatch Open(Agent agent, string? incoming = null)
+        { Memory.Own(Claim, agent); return Store.OpenDispatch(Claim, agent, [Agent.Codex, Agent.Claude], incoming, default); }
+        public JsonNode Call(CollaborationDispatch d, string tool, JsonNode args) => d.Call(d.Agent, d.Id, "native", tool, args, default);
+        public CollaborationMessage Submit(CollaborationDispatch d, JsonObject message)
+        { Call(d, "submit_message", message); var result = d.Complete(); Memory.ReleaseSpeaker(Claim, d.Agent); return result; }
+        public void Dispose() { if (Path.GetDirectoryName(Root) != Path.Combine(CollaborationTests.Root, "artifacts")) throw new Exception("Unsafe cleanup"); Directory.Delete(Root, true); }
+    }
+    static JsonObject Message(string type, Agent recipient = Agent.Claude, string? reply = null) => CollaborationRoutingTests.Message(type, recipient, reply);
+    static void Finding(JsonObject message, string disposition, string[] refs)
+    { message["content"]!["findings"] = new JsonArray(JsonSerializer.SerializeToNode(new CollaborationFinding("finding-1", "high", "src/main.cs", 1, "Boundary condition", disposition, refs), CollaborationContract.JsonOptions)); }
+    public static async Task Run(Func<string, Func<Task>, Task> test)
+    {
+        await test("native execution evidence is bounded, durable, scoped and never invents an exit code", () =>
+        {
+            using var f = new Fixture(); var d = f.Open(Agent.Claude);
+            d.Observe(new(Agent.Claude, EventKind.Tool, "Bash", "cmd1", "{\"command\":\"test\"}"));
+            d.Observe(new(Agent.Claude, EventKind.ToolOutput, new string('x', 14000), "cmd1", "{\"isFinal\":true,\"isError\":false}"));
+            var doc = f.Store.Read(f.Claim.TaskId); var e = doc.Evidence.Single();
+            Check(e.ExitCode is null && e.Finished && e.Truncated && e.Output.Length == 12000 && e.Provider == Agent.Claude, "Evidence provenance or bounds failed");
+            var response = f.Call(d, "get_evidence", new JsonObject { ["offset"] = 0, ["limit"] = 4 });
+            Check(response["evidence"]![0]!.Bool("fresh"), "Unchanged evidence stale");
+            File.AppendAllText(Path.Combine(f.Workspace, "src/main.cs"), "changed");
+            response = f.Call(d, "get_evidence", new JsonObject { ["offset"] = 0, ["limit"] = 4 });
+            Check(!response["evidence"]![0]!.Bool("fresh"), "Changed evidence reused");
+            var invented = Message("status"); invented["content"]!["evidence_refs"] = new JsonArray("invented"); Reject(() => f.Call(d, "submit_message", invented));
+            d.Abort("test"); f.Memory.End(f.Claim, WorkState.Stopped, "test");
+            Check(new CollaborationStore(f.Local, new TaskMemory(f.Local)).Read(f.Claim.TaskId).Evidence.Single().Id == e.Id, "Evidence lost on restart");
+            return Task.CompletedTask;
+        });
+        await test("review rejects changed files and altered scope before accepting results", () =>
+        {
+            using var f = new Fixture(); var request = f.Submit(f.Open(Agent.Codex), Message("review_request")); var d = f.Open(Agent.Claude, request.Envelope.MessageId);
+            var result = Message("review_result", Agent.Codex, request.Envelope.MessageId);
+            result["content"]!["scope"]!["focus"] = new JsonArray("different"); Reject(() => f.Call(d, "submit_message", result));
+            result = Message("review_result", Agent.Codex, request.Envelope.MessageId);
+            File.AppendAllText(Path.Combine(f.Workspace, "src/main.cs"), "changed"); Reject(() => f.Call(d, "submit_message", result));
+            d.Abort("test"); return Task.CompletedTask;
+        });
+        await test("author addressed claim needs a fresh peer check and stable finding ID", () =>
+        {
+            using var f = new Fixture(); var request = f.Submit(f.Open(Agent.Codex), Message("review_request")); var reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            var result = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(result, "checked", []); Reject(() => f.Call(reviewer, "submit_message", result));
+            Finding(result, "open", []); var review = f.Submit(reviewer, result);
+            var author = f.Open(Agent.Codex, review.Envelope.MessageId); File.WriteAllText(Path.Combine(f.Workspace, "src/main.cs"), "fixed");
+            Reject(() => f.Call(author, "submit_message", Message("status", reply: review.Envelope.MessageId)));
+            f.Call(author, "mark_addressed", new JsonObject { ["finding_id"] = "finding-1", ["explanation"] = "Fixed boundary" });
+            Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "addressed", "Author claim silently checked");
+            request = f.Submit(author, Message("review_request", Agent.Claude, review.Envelope.MessageId)); reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            reviewer.Observe(new(Agent.Claude, EventKind.Tool, "Read", "read1", "{\"file_path\":\"src/main.cs\"}"));
+            reviewer.Observe(new(Agent.Claude, EventKind.ToolOutput, "fixed", "read1", "{\"isFinal\":true,\"isError\":false}"));
+            var evidence = f.Store.Read(f.Claim.TaskId).Evidence.Single(); result = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(result, "checked", [evidence.Id]);
+            f.Submit(reviewer, result); Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "checked", "Peer check did not advance finding");
+            return Task.CompletedTask;
+        });
+        await test("incomplete snapshot cannot certify a review", () =>
+        {
+            using var f = new Fixture(); var large = Path.Combine(f.Workspace, "large.bin"); using (var file = File.Create(large)) file.SetLength(9 * 1024 * 1024);
+            var d = f.Open(Agent.Codex); f.Call(d, "submit_message", Message("review_request"));
+            try { d.Complete(); throw new Exception("Incomplete snapshot certified"); } catch (IOException) { }
+            d.Abort("incomplete"); Check(!f.Store.Read(f.Claim.TaskId).Snapshots.Values.Single().Complete, "Coverage limitation missing");
+            return Task.CompletedTask;
+        });
+        await test("files changed during a native check cannot supply reusable evidence", () =>
+        {
+            using var f = new Fixture(); var d = f.Open(Agent.Codex);
+            d.Observe(new(Agent.Codex, EventKind.Tool, "commandExecution", "cmd", "{\"type\":\"commandExecution\",\"status\":\"inProgress\",\"command\":\"test\"}"));
+            File.AppendAllText(Path.Combine(f.Workspace, "src/main.cs"), "changed during check");
+            d.Observe(new(Agent.Codex, EventKind.Tool, "commandExecution", "cmd", "{\"type\":\"commandExecution\",\"status\":\"completed\",\"exitCode\":0}"));
+            var page = f.Call(d, "get_evidence", new JsonObject { ["offset"] = 0, ["limit"] = 4 });
+            Check(!page["evidence"]![0]!.Bool("fresh"), "Changed check was reusable");
+            d.Abort("test"); return Task.CompletedTask;
+        });
+    }
+}

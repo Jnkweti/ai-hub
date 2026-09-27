@@ -1,0 +1,17 @@
+# Shared context and useful participation — 0.8.0
+
+Historical candidate design. The 0.8.0 candidate was not installed; [0.9.0](SHARED-CONTEXT-0.9.0.md) supersedes it with canonical state, automatic context supply, fresh phase reconstruction, and complete reply assembly.
+
+Both selected agents receive the user's message and shared conversation. Unaddressed follow-ups rotate the first speaker. The second checks the first response; it may contribute a new fact, correction, material tradeoff, or necessary question. A no_further_contribution result is retained in task history without a chat message. The optional reply is withheld until its terminal result, preventing a streamed pass from leaking into chat. Exact repeats, ignoring punctuation/case/spacing, are also hidden. Semantic novelty remains a model judgment; the host does not claim to detect every paraphrase. Explicit peer requests retain their durable routing and review lifecycle.
+
+For substantial project discovery, a context_request assigns one distinct existing file/directory area and research questions to each provider. The host rejects overlapping/escaping scopes, duplicate agents, single-agent routing, and multiple requests in the same user turn. It starts two fresh native clients concurrently with editing disabled and additional permission requests denied. Research sessions expose only task context, shared context, and context publication. The parent editing claim remains held until both workers clean up. Normal native session IDs remain separate.
+
+The workers publish concise findings, source files, and open questions into the task's atomic collaboration ledger. Publications bind to the host's current run, provider, dispatch and session, and retry unchanged content idempotently. Sources must belong to the assigned area. File reads outside assigned areas are discouraged by instructions, not restricted by per-directory OS capabilities. The native clients enforce the read-only workspace policy; editing remains serialized in main turns.
+
+Shared context is a durable task notebook, not a literal shared model KV cache. Both providers retrieve bounded pages through get_shared_context. The task inspector provides Shared context with collector, scope, sources, questions, collection time, and scoped file freshness. Added, deleted, or changed files invalidate relevant findings; unrelated files do not. Incomplete coverage or source changes during research prevent a Current files label. These checks verify file freshness, not the truth of conclusions, live services, or runtime behavior. Findings may be partial if a worker fails; main execution does not resume until both publish successfully.
+
+Limits: one split request per user message, sixteen saved sections per task, 12,000 characters per finding summary, 32 sources and eight open questions per section. Tool pages are bounded. Stop revokes both workers; restart preserves history without replay; deleting the room removes its context. Casual discussion and small tasks skip the research phase.
+
+The envelope remains schema 1.0 with an additive context_request variant. Existing ledgers load without migration. Older binaries cannot consume the new variant and should not be used with updated task data; installation keeps a pre-update data backup. The app-bundled workflow plugin is version 0.8.0; no global plugin or marketplace changes are needed.
+
+Verification and installation results are recorded below when release checks finish.
