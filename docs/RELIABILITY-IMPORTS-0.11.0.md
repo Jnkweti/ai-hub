@@ -27,4 +27,19 @@ Limits are independent and the first one reached applies: 48,000-byte common con
 
 ## Verification
 
-Pending final package, native and desktop verification. Results will be recorded here before installation.
+- Clean checkout at implementation commit `a3aff53`: Release build with zero warnings/errors; **186 tests passed**, including immutable source retrieval, Unicode, restart, corruption, stale ownership, native adapters, import collisions and Windows sharing conflicts. Logs: `artifacts/reliability-011-clean-build.txt`, `reliability-011-clean-tests.txt`; checkout metadata: `reliability-011-clean-location.json`.
+- Working checkout: 185 tests passed before the final sharing-conflict regression was added; all 26 focused reliability/source/import regressions passed afterward (`reliability-011-tests-final.txt`, `reliability-011-regressions.txt`). Fifteen isolated scheduling runs also passed.
+- Original failed profile copied in isolation: its **282,824-character transcript** imported intact into the existing task; common context was **46,656 UTF-8 bytes**. Production data was untouched. Fixture: `artifacts/reliability-011-profile-copy`.
+- Native Codex and Claude both retrieved different interior sections of one 280,614-character source through the packaged bridge. Host inputs were bounded; source previews were marked partial. Evidence: `reliability-011-native-source-final/results.json` and `events.json`.
+- Native Claude Bash evidence completed a check claim with **unknown exit status and reuse disabled**, as intended (`reliability-011-native-claude/results.json`). Fake native-event regressions also cover explicit zero and nonzero exits for Bash and PowerShell.
+- Native parallel researchers overlapped, saved findings, and resumed one synthesis without changing project files. This small fixture took 55.04 seconds / 5 calls / 39,020 host bytes versus 43.90 seconds / 1 call / 7,148 host bytes for one agent. No speed or cost advantage is claimed. Evidence: `reliability-011-native-research/comparison.json` and its results. Native runs preceded the final bounded-save retry; the final package's persistence was then verified by the full clean-checkout suite and desktop checks.
+- Final package desktop checks passed for imports, filename collisions, saved drafts/restart, background tasks, progress polling, notes, explicit task separation, Stop all, shared-context pin/replace, and copied-profile upgrade without model work or transcript loss. Logs: `reliability-011-import-ui-final.txt`, `reliability-011-desktop.txt`, `reliability-011-context-ui.txt`, `reliability-011-upgrade.txt`.
+- All 26 published schema fixtures, both plugin manifests, and all three bundled skill validators passed.
+
+The desktop regression exposed an intermittent Windows destination-file sharing conflict; its activity stack identified `LocalStore.Save` during `ReleaseSpeaker`. Bounded replacement retries and a dedicated regression now cover that case. A separate bridge revocation timeout was fixed by isolating potentially blocking console input from the host EOF pump. Earlier failed attempts are not counted as passes.
+
+Final installed package version: **0.11.0.0**. Core DLL SHA-256: `C573570F9327BD36C7C898F304F020A6B188BA41724031AEFA79984C74BD40B1`.
+
+Installation: all **611 package files** matched the candidate; all **eight production profile files** were unchanged. Backups: `artifacts/before-collaboration-20260927-112314.zip` and `artifacts/before-collaboration-data-20260927-112314.zip`. Verification: `artifacts/reliability-011-install-result.json`.
+
+Reopened the normal profile successfully with three rooms and message counts 55 / 7 / 16; no running tasks or provider children. Verification: `artifacts/reliability-011-reopen-result.json`. The pasted transcript is imported into source storage on the next explicit user phase; reopening does not dispatch or analyze it automatically.
