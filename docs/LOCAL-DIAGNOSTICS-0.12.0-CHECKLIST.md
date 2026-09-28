@@ -28,4 +28,4 @@ to a releasable state. Items are checked only with recorded evidence in
 - [x] Desktop smoke scripts passed against the packaged app: local diagnostics and conversation management.
 - [x] Schema fixtures and the Claude plugin manifest validated.
 - [x] Package built to `artifacts\diagnostics-012-release`.
-- [ ] App and data backed up; installed; reopened idle (requires the user's approval).
+- [x] App and data backed up; installed; reopened idle (approved by the user on September 28, 2026).

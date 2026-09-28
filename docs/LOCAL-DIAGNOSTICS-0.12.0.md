@@ -113,5 +113,11 @@ Every count below comes from a recorded run on September 27, 2026.
   `5AC059BF56D954AE6EB1FC6E144511433F59DE9F43AE55C7B3DC9BD1C2A4E87B` in both the app and the bridge.
   The clean-checkout Core DLL hashes differently because the build embeds its source path; its tests,
   not its bytes, are the evidence.
-- No native model calls were made for this release. Installation has not been performed: the installed
-  app remains 0.11.0 until the user approves replacing it.
+- No native model calls were made for this release.
+- Installed **0.12.0.0** on September 28, 2026 with the user's approval after confirming the previous app
+  was closed with no running or owned tasks. All **611** package files matched the candidate and all
+  **nine** production profile files were unchanged. Backups:
+  `artifacts\before-collaboration-20260928-135106.zip` and
+  `artifacts\before-collaboration-data-20260928-135106.zip`. Reopened the normal profile as 0.12.0.0 with
+  zero running tasks and zero child processes. Evidence: `artifacts\diagnostics-012-install-result.json`
+  and `artifacts\diagnostics-012-reopen-result.json`.
