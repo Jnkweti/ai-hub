@@ -25,4 +25,11 @@ push and worktrees with the real CLIs.
   `tests\Conversation-Management-Smoke.ps1`, whose restart, archive, delete and scoped-deletion cases exercise the new
   storage.
 - Live provider check: not run; the Codex account is over its limit until October 3, 2026.
-- PENDING: clean checkout verification, installation (the installed profile's 396 KB `rooms.json` migrates on first launch).
+- Clean checkout of commit `ecef8b5` at a short temporary path built with zero warnings and passed all 241 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.22.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\remaining-023-install-result.json` (612 files verified, package hashes match, 10 profile files
+  verified, production data unchanged, backups `before-collaboration-20260928-195135.zip` and
+  `before-collaboration-data-20260928-195135.zip`). On reopen as 0.23.0.0 the 396 KB `rooms.json` was split into a
+  16 KB index and four `room-<id>.json` transcripts holding exactly the messages each room had before (67, 16, 7 and 0):
+  `artifacts\remaining-023-reopen-result.json`.
