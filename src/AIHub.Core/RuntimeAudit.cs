@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace AIHub.Core;
 
-public enum AuditCode { ProviderError, StorageError, RepeatedContribution, RoundLimit, SuspectedStall, UnhandledError, RecoveryNotice, StreamImbalance, TurnInactivity }
+public enum AuditCode { ProviderError, StorageError, RepeatedContribution, RoundLimit, SuspectedStall, UnhandledError, RecoveryNotice, StreamImbalance, TurnInactivity, ProviderRestart }
 public sealed record AuditFinding(AuditCode Code, string Room, string Task, Agent? Agent, DateTimeOffset First,
     DateTimeOffset Last, int Count, string ExceptionType = "", string Version = "");
 public sealed record AuditTrace(DateTimeOffset Time, string Room, string Task, Agent? Agent, string Kind);

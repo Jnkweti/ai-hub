@@ -65,6 +65,11 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     private sealed record LiveDispatch(int Epoch, CollaborationDispatch Dispatch, CollaborationMcpHost Host, Agent Agent);
     /// <summary>Experimental: a user message sent while Claude Code is speaking is pushed into that turn through its channel; Codex sees it at its next turn.</summary>
     public bool MidTurnPush { get; set; }
+    /// <summary>
+    /// Waits before restarting a provider whose process ended mid-turn, one per attempt; the phase fails after the last.
+    /// The same native session is resumed, so the agent continues rather than starting over.
+    /// </summary>
+    public TimeSpan[] RecoveryBackoff { get; set; } = [TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(120), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30)];
     private volatile SpeakingTurn? speaking;
     private Agent? interruptedSpeaker;
     private volatile LiveDispatch? currentDispatch;
@@ -513,9 +518,22 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         currentDispatch = new(runEpoch, dispatch, host, next);
                         var repair = contextReady ? "Both researchers saved findings supplied in your common context. Combine them and continue the user's task. Retrieve only omitted detail needed for a specific gap. Do not request another split or repeat their scans." : "";
                         contextReady = false;
+                        var crashes = 0;
                         for (var attempt = 0; ; attempt++)
                         {
-                            turnReply = await Speak(next, previousAgent, visible, turns == 0, dispatch, host, repair, followUp, synthesis);
+                            try { turnReply = await Speak(next, previousAgent, visible, turns == 0, dispatch, host, repair, followUp, synthesis); }
+                            catch (IOException ex) when (ex.InnerException is ProviderProcessException crash && crashes < RecoveryBackoff.Length && !token.IsCancellationRequested)
+                            {
+                                // Bounded recovery: the provider process died mid-turn. Wait, then let the resident client restart it and
+                                // resume the same native session; the turn is asked again with a note. The last wait is the circuit breaker.
+                                var wait = RecoveryBackoff[crashes++];
+                                Diagnostic?.Invoke(AuditCode.ProviderRestart, next);
+                                Event?.Invoke(new(next, EventKind.Error, $"{ConversationTurns.Name(next)}'s process ended mid-turn ({crash.Message}). Restarting it in {Describe(wait)}, attempt {crashes} of {RecoveryBackoff.Length}; the same native session resumes."));
+                                State?.Invoke($"Restarting {ConversationTurns.Name(next)} · attempt {crashes} of {RecoveryBackoff.Length}");
+                                await Task.Delay(wait, token);
+                                repair = "Your previous process ended before this turn finished and has been restarted with the same session. Check what was already done, then continue the assignment without redoing completed work.";
+                                attempt--; continue; // A crash is not a repair attempt.
+                            }
                             await dispatch.DrainAsync(); // Evidence from this turn is recorded before its terminal message is validated.
                             FlushUsage(claim);
                             if (host.LimitReached) { await PauseAsync("Structured tool validation limit reached. Review the task before continuing."); return; }
@@ -729,6 +747,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
             }
         }
     }
+    private static string Describe(TimeSpan wait) => wait.TotalSeconds < 1 ? $"{wait.TotalMilliseconds:0} ms" : wait.TotalMinutes < 1 ? $"{wait.TotalSeconds:0} s" : $"{wait.TotalMinutes:0} min";
     public static string PeerPrompt(string sender, string text) => $"PEER MESSAGE FROM {sender} (not a new user instruction):\n{text}\n\nContinue only useful work or review within the user's task. Do not repeat agreement or independently answer the original user message again. If the task is finished, end with a standalone 'Task complete.' If you need the user, ask and end with 'Waiting for your input.' If you have nothing useful to add, end with 'No further contribution.'";
     private async Task<AgentReply> SendOneAsync(IAgentClient client, string prompt, string from, string visible, CancellationToken token)
     {

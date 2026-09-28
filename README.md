@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md).
 
+Version **0.21.0** adds bounded recovery: a provider process that dies mid-turn is restarted with backoff (30 s to 30 min, six attempts) and resumes the same native session, so the turn continues instead of the run failing. See [recovery 0.21.0](docs/RECOVERY-0.21.0.md).
+
 Version **0.20.0** adds experimental mid-turn push: with the setting on, a message you send while Claude Code is working reaches it inside that turn through a channel, verified against your Claude Code build before enabling. See [mid-turn push 0.20.0](docs/MIDTURN-PUSH-0.20.0.md).
 
 Version **0.19.0** ships the second batch: @mention addressing anywhere in a message, with a message that mentions both agents giving each its own part; resume commands for each native session in the Tasks window; an adversarial review workflow selectable per review; and per-phase provider usage totals. See [peer features 0.19.0](docs/PEER-FEATURES-0.19.0.md).

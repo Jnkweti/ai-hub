@@ -5,6 +5,9 @@ using System.Text.Json.Nodes;
 
 namespace AIHub.Core;
 
+/// <summary>The provider process ended while a turn was in flight. Recoverable: the same native session can be resumed in a new process.</summary>
+public sealed class ProviderProcessException(string message) : IOException(message);
+
 public sealed class JsonProcess : IAsyncDisposable
 {
     private Process? process;
@@ -86,7 +89,7 @@ public sealed class JsonProcess : IAsyncDisposable
                 else Message?.Invoke(message);
             }
             if (!life.IsCancellationRequested)
-                throw new IOException("The agent process closed its output. Check sign-in and Activity for details.");
+                throw new ProviderProcessException("The agent process closed its output. Check sign-in and Activity for details.");
         }
         catch (Exception ex)
         {

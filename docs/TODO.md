@@ -42,7 +42,7 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
 - [x] **Mid-turn push** (from AgentBridge, rennerdo30/agent-bridge, hcom). Shipped as 0.20.0, see `MIDTURN-PUSH-0.20.0.md`. Deliver new stream events into Claude's
   running turn through the bridge as MCP notifications; Codex keeps queueing to the next turn boundary. Claude's
   channel feature is a research preview behind a flag, so ship behind a setting. M to L.
-- [ ] **Bounded recovery loops** (from claude_codex_bridge). Restart a crashed provider process inside a phase with
+- [x] **Bounded recovery loops** (from claude_codex_bridge). Shipped as 0.21.0, see `RECOVERY-0.21.0.md`. Restart a crashed provider process inside a phase with
   backoff (30 s to 30 min, circuit-break after six) and resume its session, instead of failing the run on the first
   crash. M.
 - [ ] **Per-agent worktrees** (from agent-bridge-mesh, rennerdo30 delegate). Optional isolated git worktree per agent

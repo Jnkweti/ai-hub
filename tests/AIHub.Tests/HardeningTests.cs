@@ -446,6 +446,33 @@ internal static class HardeningTests
                 Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "user_message" && e.Text == "also check the tests"), "The interjection was not recorded in the stream after the turn");
             }
         });
+        // 0.21.0: bounded recovery loops.
+        await test("a provider process that dies mid-turn is restarted with backoff and the turn continues", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var errors = new List<string>(); var states = new List<string>();
+            await using var hub = f.Hub((_, host, turn, prompt, _) =>
+            {
+                if (turn <= 2) throw new ProviderProcessException("The agent process closed its output.");
+                Check(prompt.Contains("restarted with the same session"), "The resumed turn was not told about the restart");
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Finished after the restart.");
+            });
+            hub.RecoveryBackoff = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)];
+            hub.Event += e => { if (e.Kind == EventKind.Error) lock (errors) errors.Add(e.Text); }; hub.State += s => { lock (states) states.Add(s); };
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+            var task = f.Memory.Get(f.TaskId)!;
+            Check(task.State == WorkState.Ready && f.Calls == 3, $"Turn did not continue after restarts: {task.State} calls={f.Calls} {task.Reason}");
+            Check(errors.Count(t => t.Contains("Restarting it in")) == 2 && states.Any(s => s.StartsWith("Restarting Codex · attempt 2 of 3")) && clock.ElapsedMilliseconds >= 100, "Restart notices or backoff missing");
+        });
+        await test("the recovery loop gives up after its last backoff and the phase fails with the cause", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            await using var hub = f.Hub((_, _, _, _, _) => throw new ProviderProcessException("The agent process closed its output."));
+            hub.RecoveryBackoff = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)];
+            await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+            var task = f.Memory.Get(f.TaskId)!;
+            Check(task.State == WorkState.Failed && f.Calls == 3 && task.Reason.Contains("closed its output"), $"Circuit breaker did not trip after the last backoff: {task.State} calls={f.Calls} {task.Reason}");
+        });
     }
 }
 
