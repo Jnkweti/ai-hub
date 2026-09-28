@@ -20,6 +20,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 ## Interface
 
+Version **0.13.0** keeps each agent's provider session resident for the whole phase instead of starting a new process for every turn. Both agents receive the full common context once, at the start of the phase; every later turn in the phase supplies only the new events since their last turn: the user's messages, pinned instructions, the peer's contributions, quiet passes, research results and finished native commands. The same ordered stream is available to the agents through the `get_events` tool and is saved with the task. Synthesis after split research still receives the rebuilt context. This is the first step of the [target design](docs/LIVE-STREAM-0.13.0.md): one shared live stream for the user and both agents.
+
 Version **0.12.0** adds **Local diagnostics**, the pulse-icon button beside **Tasks and notes** in the Shared project panel. AI Hub keeps a bounded, metadata-only record of provider errors, conversation-save failures, recovery notices, suppressed repeats, round limits, suspected five-minute stalls, and unhandled application errors: category, count, first and last time, room and task references, exception type, and the app version that recorded it. Chat text, prompts, tool output, and exception messages are never stored. Open the report to read it, **Export report** to save it as Markdown, or **Prepare agent review** to create a separate read-only conversation with the report as its draft; you decide when to send it, and nothing runs periodically. **Settings → Collect local diagnostics** turns collection off while keeping existing findings. See [local diagnostics verification](docs/LOCAL-DIAGNOSTICS-0.12.0.md).
 
 Version **0.9.0** includes the shared-participation correction developed in the 0.7.1 candidate. Both selected agents get an opportunity to contribute without an explicit handoff, the starting agent rotates on unaddressed follow-ups, and routine status receipts remain in task history. Quiet peer checks and parallel context gathering are described in [release verification](docs/SHARED-CONTEXT-0.8.0.md).
@@ -118,7 +120,7 @@ Saved under `%LOCALAPPDATA%\AIHub`:
 - `rooms.json`: active and archived conversations, drafts, provider session identifiers, and per-agent shared-message cursors.
 - `activity-<room-id>.jsonl`: activity events and agent handoffs.
 - `tasks.json`: task objectives, notes, ownership and run state.
-- `collaboration-<task-id>.json`: task context, assignments, evidence and full host input prompts in plaintext.
+- `collaboration-<task-id>.json`: task context, assignments, evidence, the shared event stream (up to 2,048 entries, text clipped at 2,000 characters) and full host input prompts in plaintext.
 - `source-<task-id>-<hash>.json`: exact long-message originals, checked against their recorded hash when retrieved.
 - `instance.lock`: exclusive application ownership of this profile.
 - `diagnostics\audit.json`: bounded local diagnostics metadata (at most 100 findings and 200 recent event records). It never contains message, prompt, tool or exception text.

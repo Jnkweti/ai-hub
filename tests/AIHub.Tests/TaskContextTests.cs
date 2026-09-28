@@ -132,18 +132,22 @@ internal static class TaskContextTests
             await hub.SubmitAsync("Choose a layout", "Both"); await f.Finished();
             Check(TaskContextBuilder.ActiveInstructions(f.Store.Read(f.TaskId)).Any(r => r.Id == "chat:answer"), "Inline answer lost user authority");
         });
-        await test("within-phase review returns retain native continuity", async () =>
+        await test("within-phase review returns keep the resident native session", async () =>
         {
-            using var f = new Fixture(); var flags = new List<bool>();
-            await using var hub = f.Hub((agent, host, turn, _, _) =>
+            using var f = new Fixture(); var flags = new List<bool>(); var prompts = new List<string>();
+            await using var hub = f.Hub((agent, host, turn, prompt, _) =>
             {
-                flags.Add(host.StartFreshSession); var context = Tool(host, "get_task_context", new JsonObject());
+                flags.Add(host.StartFreshSession); prompts.Add(prompt); var context = Tool(host, "get_task_context", new JsonObject());
                 var incoming = context["incoming_message"]?["envelope"]?.Str("message_id");
                 Tool(host, "submit_message", turn == 1 ? Message("review_request") : turn == 2 ? Message("review_result", Agent.Codex, incoming) : Message(replyTo: incoming));
                 return Task.FromResult("Contribution " + turn);
             });
+            var created = 0; var inner = hub.CollaborationFactory!;
+            hub.CollaborationFactory = (agent, host) => { created++; return inner(agent, host); };
             await hub.SubmitAsync("Implement and review", "Both"); await f.Finished();
-            Check(flags.SequenceEqual([true, true, false]), "Host restarted native session during dependent review return");
+            // One resident client and one fresh host per agent for the phase; the review return continues the live session with a delta prompt.
+            Check(flags.SequenceEqual([true, true, true]) && created == 2 && prompts[2].Contains("NEW EVENTS SINCE YOUR LAST TURN") && prompts[2].Contains("CURRENT STRUCTURED PEER MESSAGE"),
+                "Host restarted the native session during the dependent review return");
         });
         await test("provider failures remain failed assignments and failed input records", async () =>
         {

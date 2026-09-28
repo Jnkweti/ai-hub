@@ -88,18 +88,20 @@ public static class TaskContextBuilder
 
 public sealed partial class CollaborationStore
 {
-    private static void AddContextRecord(CollaborationDocument document, TaskContextRecord record)
+    /// <summary>Adds a record; returns false when an identical record already exists.</summary>
+    private static bool AddContextRecord(CollaborationDocument document, TaskContextRecord record)
     {
         var old = document.ContextRecords.FirstOrDefault(r => r.Id == record.Id);
         if (old is not null)
         {
             if (old.Kind != record.Kind || old.Author != record.Author || old.Text != record.Text || old.Supersedes != record.Supersedes || old.OriginalHash != record.OriginalHash)
                 throw new IOException("A saved context record ID was reused with different content. Original context was preserved.");
-            return;
+            return false;
         }
         if (document.ContextRecords.Count >= 1024 || record.Text.Length > 128000 || record.Id.Length > 160)
             throw new IOException("Task context storage is full or an entry is too large. Start a new task; saved context was preserved.");
         document.ContextRecords.Add(record);
+        return true;
     }
     internal void SynchronizeContext(TaskClaim claim, IReadOnlyList<ConversationEntry> conversation, string currentPrompt)
     {
@@ -120,10 +122,14 @@ public sealed partial class CollaborationStore
                 if (at >= 0 && record.SourceStored && document.ContextRecords[at].OriginalHash is null &&
                     TaskContextBuilder.Fingerprint(document.ContextRecords[at].Text) == record.OriginalHash)
                     document.ContextRecords[at] = record with { Created = document.ContextRecords[at].Created }; // Lossless migration of a large inline original.
-                else AddContextRecord(document, record);
+                else if (AddContextRecord(document, record) && record.Kind == "user_message" && record.Author == "You")
+                    AppendEvent(document, "user_message", "You", record.Text, record.Id, claim.Generation); // Agent replies enter the stream from the turn loop, attributed to their dispatch.
             }
             foreach (var note in task.Notes)
-                AddContextRecord(document, new("note:" + TaskContextBuilder.Fingerprint(note.Time.ToString("O") + note.Text), "user_note", "You", note.Text, note.Time));
+            {
+                var record = new TaskContextRecord("note:" + TaskContextBuilder.Fingerprint(note.Time.ToString("O") + note.Text), "user_note", "You", note.Text, note.Time);
+                if (AddContextRecord(document, record)) AppendEvent(document, "user_note", "You", note.Text, record.Id, claim.Generation);
+            }
             Save(document); return 0;
         }
         });
@@ -140,6 +146,7 @@ public sealed partial class CollaborationStore
                 throw new InvalidOperationException("Select an active user instruction to supersede.");
             var id = "pin:" + Guid.NewGuid().ToString("N");
             AddContextRecord(document, new(id, "pinned_instruction", "You", text.Trim(), DateTimeOffset.UtcNow, supersedes));
+            AppendEvent(document, "pinned_instruction", "You", text.Trim() + (supersedes is null ? "" : " (supersedes " + supersedes + ")"), id, task.Generation);
             TaskContextBuilder.Build(document, task.Objective); // Fail before committing an unusable authoritative state.
             Save(document); return id;
         }

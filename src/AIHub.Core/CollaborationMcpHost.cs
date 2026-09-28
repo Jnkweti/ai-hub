@@ -6,23 +6,28 @@ using System.Text.Json.Nodes;
 
 namespace AIHub.Core;
 
-/// <summary>A revocable, provider/dispatch-bound MCP connection; all tools execute in the host process.</summary>
+/// <summary>
+/// A revocable, provider-bound MCP connection that lives for a phase; all tools execute in the host process.
+/// The resident provider session keeps one pipe while the host attaches the current dispatch to it per turn.
+/// </summary>
 public sealed class CollaborationMcpHost : IAsyncDisposable
 {
     private readonly CancellationTokenSource life;
     private readonly string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     private readonly string pipeName = "aihub-collaboration-" + Guid.NewGuid().ToString("N");
-    private readonly ICollaborationTools tools;
+    private readonly ICollaborationTools baseline;
+    private volatile ICollaborationTools? tools;
+    private volatile string dispatchId;
     private readonly Agent agent;
     private readonly Task serving;
     private string? sessionId;
     private int calls, repairs;
     private int disposed;
-    public string DispatchId { get; }
+    public string DispatchId => dispatchId;
     public bool StartFreshSession { get; init; }
     public string? ResumeSessionId { get; init; }
     public bool LimitReached => Volatile.Read(ref repairs) >= 3 || Volatile.Read(ref calls) > 256;
-    public string Instructions => tools.Instructions + WorkflowInstructions;
+    public string Instructions => baseline.Instructions + WorkflowInstructions;
     public string WorkflowInstructions { get; init; } = "";
     public string BridgeExecutable { get; }
     public const int FrameLimit = 262144;
@@ -30,11 +35,20 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
     {
         if (!Path.IsPathFullyQualified(bridgeExecutable) || !File.Exists(bridgeExecutable))
             throw new FileNotFoundException("The collaboration MCP bridge executable is unavailable.");
-        this.tools = tools; this.agent = agent; BridgeExecutable = bridgeExecutable;
-        DispatchId = dispatchId ?? Guid.NewGuid().ToString("N");
+        baseline = tools; this.tools = tools; this.agent = agent; BridgeExecutable = bridgeExecutable;
+        this.dispatchId = dispatchId ?? Guid.NewGuid().ToString("N");
         life = CancellationTokenSource.CreateLinkedTokenSource(token);
         serving = ServeAsync();
     }
+    /// <summary>Routes this session's tool calls to the given dispatch and resets the per-dispatch call and repair budget.</summary>
+    public void Attach(ICollaborationTools dispatch, string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("A dispatch ID is required.");
+        dispatchId = id; tools = dispatch;
+        Interlocked.Exchange(ref calls, 0); Interlocked.Exchange(ref repairs, 0);
+    }
+    /// <summary>Between turns the resident session keeps its pipe but has no dispatch; tool calls are refused, not counted.</summary>
+    public void Detach() => tools = null;
     public void BindSession(string id)
     {
         if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("A native session ID is required.");
@@ -47,7 +61,7 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
         "{command=" + JsonSerializer.Serialize(BridgeExecutable) + ",args=[],env_vars=[\"AIHUB_COLLAB_PIPE\",\"AIHUB_COLLAB_TOKEN\"],required=true,enabled=true,default_tools_approval_mode=\"approve\"}"];
     internal string ClaudeConfiguration() => JsonSerializer.Serialize(new { mcpServers = new
     { ai_hub = new { type = "stdio", command = BridgeExecutable, args = Array.Empty<string>() } } });
-    internal static bool IsTool(string name) => name is "mcp__ai_hub__get_task_context" or "mcp__ai_hub__submit_message" or "mcp__ai_hub__get_messages" or "mcp__ai_hub__get_evidence" or "mcp__ai_hub__mark_addressed" or "mcp__ai_hub__get_shared_context" or "mcp__ai_hub__publish_context" or "mcp__ai_hub__get_context_records" or "mcp__ai_hub__read_context_source" or "mcp__ai_hub__read_context_record" or "mcp__ai_hub__claim_work" or "mcp__ai_hub__complete_work" or "mcp__ai_hub__get_work";
+    internal static bool IsTool(string name) => name is "mcp__ai_hub__get_task_context" or "mcp__ai_hub__submit_message" or "mcp__ai_hub__get_messages" or "mcp__ai_hub__get_evidence" or "mcp__ai_hub__mark_addressed" or "mcp__ai_hub__get_shared_context" or "mcp__ai_hub__publish_context" or "mcp__ai_hub__get_context_records" or "mcp__ai_hub__read_context_source" or "mcp__ai_hub__read_context_record" or "mcp__ai_hub__claim_work" or "mcp__ai_hub__complete_work" or "mcp__ai_hub__get_work" or "mcp__ai_hub__get_events";
     private async Task ServeAsync()
     {
         using var slots = new SemaphoreSlim(4, 4);
@@ -119,12 +133,12 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
                 {
                     protocolVersion = "2025-03-26", capabilities = new { tools = new { listChanged = false } },
                     serverInfo = new { name = "AI Hub collaboration", version = "0.2.0" },
-                    instructions = tools.Instructions
+                    instructions = Instructions
                 });
             }
             else if (method == "ping") result = new JsonObject();
             else if (!ready) { await WriteError(id, -32600, "Initialize this connection first."); continue; }
-            else if (method == "tools/list") result = new JsonObject { ["tools"] = tools.Definitions };
+            else if (method == "tools/list") result = new JsonObject { ["tools"] = baseline.Definitions };
             else if (method == "tools/call")
             {
                 var p = request["params"];
@@ -139,12 +153,14 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
     internal JsonNode InvokeTool(string name, JsonNode? arguments)
     {
         life.Token.ThrowIfCancellationRequested();
+        var current = tools;
+        if (current is null) return ToolResult("No active dispatch is attached to this session. Wait for the host's next turn before calling tools.", true);
         try
         {
             if (Interlocked.Increment(ref calls) > 256 || Volatile.Read(ref repairs) >= 3)
                 throw new CollaborationValidationException("Dispatch tool/repair limit reached; start a new dispatch.");
             if (sessionId is null) throw new CollaborationValidationException("Native provider session has not been bound.");
-            return ToolResult(tools.Call(agent, DispatchId, sessionId, name, arguments, life.Token).ToJsonString(), false);
+            return ToolResult(current.Call(agent, dispatchId, sessionId, name, arguments, life.Token).ToJsonString(), false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { Interlocked.Increment(ref repairs); return ToolResult(ex.Message, true); }

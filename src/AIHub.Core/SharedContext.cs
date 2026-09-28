@@ -153,6 +153,7 @@ public sealed partial class CollaborationStore
                 ContextFingerprint(after, session.Assignment.Scope), coverage,
                 stable ? string.Join(" ", new[] { session.Before.Limitation, after.Limitation }.Where(s => s.Length > 0).Distinct()) : "Assigned files changed during research; recheck these findings.");
             var document = Copy(original); document.ContextSections.Add(section);
+            AppendEvent(document, "research", agent.ToString(), "Research published for " + string.Join(", ", section.Scope.Files) + ": " + notes.Findings, section.Id, session.Claim.Generation, session.Id);
             token.ThrowIfCancellationRequested(); session.Token.ThrowIfCancellationRequested(); Save(document);
             return JsonSerializer.SerializeToNode(new { section_id = section.Id, persistent = true, reusable = coverage,
                 meaning = "Saved agent findings with file fingerprints. Claims are not independently verified." })!;

@@ -72,6 +72,9 @@ public sealed partial class CollaborationStore
                 FinishedAt = finished ? DateTimeOffset.UtcNow : null, SnapshotRef = finished ? snapshot?.Id : null,
                 StartSnapshotRef = index < 0 && !finished ? snapshot?.Id : old.StartSnapshotRef };
             if (index < 0) document.Evidence.Add(updated); else document.Evidence[index] = updated;
+            if (finished)
+                AppendEvent(document, "tool", item.Agent.ToString(), $"{updated.Tool}: {Clip(updated.Command, 200)}{(exit is null ? "" : " → exit " + exit)}{(updated.IsError == true ? " (error)" : "")}",
+                    updated.Id, dispatch.Claim.Generation, dispatch.Id);
             Save(document); return null;
         });
     }

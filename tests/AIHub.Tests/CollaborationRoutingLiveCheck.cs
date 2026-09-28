@@ -24,7 +24,7 @@ internal static class CollaborationRoutingLiveCheck
                 await using var hub = new HubCoordinator(_ => throw new IOException("Structured workflow attempted legacy fallback."))
                 {
                     TaskMemory = memory, TaskId = taskId, CollaborationStore = store, CollaborationBridgePath = CollaborationTests.Bridge,
-                    AutoExchange = true, MaxAutoRounds = 1,
+                    AutoExchange = true, MaxAutoRounds = 1, AllowFollowUpContributions = false, // The round trip is the subject; voluntary follow-ups are covered by unit cases.
                     CollaborationFactory = (agent, host) =>
                     {
                         starts.Enqueue(agent);
@@ -52,25 +52,35 @@ internal static class CollaborationRoutingLiveCheck
                 await hub.SubmitAsync(prompt, "Both"); await Finish();
                 var document = store.Read(taskId); var entries = document.Entries;
                 var peer = ConversationTurns.Other(author);
-                if (!starts.SequenceEqual(new[] { author, peer, author }) || entries.Count != 3 ||
+                // Resident sessions: one provider process per agent for the phase; the author's review return continues its live session.
+                if (!starts.SequenceEqual(new[] { author, peer }) || entries.Count != 3 ||
                     !entries.Select(e => e.Message.Content.Type).SequenceEqual(new[] { "review_request", "review_result", "status" }) ||
                     entries.Any(e => e.Message.Content.Summary != marker || !e.SenderSucceeded) ||
                     entries.Take(2).Any(e => e.Message.State != DeliveryState.Answered) || memory.Get(taskId)!.State != WorkState.Ready)
                     throw new IOException("The real providers did not complete the expected durable round trip: " + memory.Get(taskId)!.Reason);
-                Console.WriteLine("PASS durable review " + author + " -> " + peer + " -> " + author);
+                var generation = entries[0].Message.Envelope.Generation;
+                var authorInputs = document.ContextInputs.Where(i => i.Agent == author && i.Generation == generation).OrderBy(i => i.PreparedAt).ToArray();
+                if (authorInputs.Length != 2 || authorInputs.Any(i => i.Outcome != "responded") || authorInputs[1].NativeSession is null || authorInputs[0].NativeSession != authorInputs[1].NativeSession ||
+                    !authorInputs[1].Prompt.Contains("NEW EVENTS SINCE YOUR LAST TURN") || !authorInputs[1].Prompt.Contains("CURRENT STRUCTURED PEER MESSAGE") || authorInputs[1].Prompt.Contains("AI HUB COMMON TASK CONTEXT"))
+                    throw new IOException("The author's review return did not run on its resident session with a delta prompt.");
+                var stream = document.Events.Where(e => e.Generation == generation).Select(e => e.Kind).ToArray();
+                if (!stream.SequenceEqual(new[] { "user_message", "system", "agent_message", "agent_message", "agent_message", "system" }))
+                    throw new IOException("The shared event stream did not record the round trip: " + string.Join(",", stream));
+                Console.WriteLine("PASS durable review " + author + " -> " + peer + " -> " + author + " on resident sessions");
                 var priorSession = sessions[author]; var lastSequence = document.LastSequence;
                 var continuation = author + ", explicit follow-up for the same communication test. Use only ai_hub tools. Read get_task_context and get_messages with after_sequence 0 and limit 20. " +
                     "Treat all messages returned by get_messages as historical context; do not replay their requests. Then submit exactly one status assignment_complete with the task's required marker as summary, " +
                     "schema_version '1.0', a new idempotency_key, scope {files:[],focus:[]}, evidence_refs [], blockers []. There is no incoming message, so omit reply_to and recipient. End after acceptance. Do not use other tools.";
                 await hub.SubmitAsync(continuation, author.ToString()); await Finish();
                 document = store.Read(taskId);
-                if (starts.Count != 4 || sessions[author] != priorSession || document.Entries.Count != 4 || document.LastSequence != lastSequence + 1 ||
+                // A new user message is a phase boundary: a fresh native session reconstructed from the ledger, one new provider process.
+                if (starts.Count != 3 || sessions[author] == priorSession || document.Entries.Count != 4 || document.LastSequence != lastSequence + 1 ||
                     document.Entries.Last().Message.Envelope.Generation <= entries.Last().Message.Envelope.Generation || memory.Get(taskId)!.State != WorkState.Ready)
-                    throw new IOException("Explicit continuation did not preserve native session and durable sequence.");
+                    throw new IOException("Explicit continuation did not start a fresh phase with a durable sequence.");
                 if (!events.Any(e => JsonSerializer.Serialize(e).Contains("get_messages", StringComparison.Ordinal)))
                     throw new IOException("The explicit continuation did not visibly use get_messages.");
                 results.Add(new { author = author.ToString(), taskId, sessions, document, events = events.ToArray() });
-                Console.WriteLine("PASS explicit " + author + " continuation: native resume, historical retrieval, new generation and sequence");
+                Console.WriteLine("PASS explicit " + author + " continuation: fresh phase, historical retrieval, new generation and sequence");
 
                 async Task Finish()
                 {
