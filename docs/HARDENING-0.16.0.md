@@ -36,4 +36,10 @@ Stop wait and review scoping to named files are still as described in the review
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
 - Live provider check: not run for this release; the Codex account's usage limit resets on October 3, 2026, and the
   0.14.0 live-stream check is still to be rerun then.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `f4fc861` at a short temporary path built with zero warnings and passed all 217 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.15.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\hardening-016-install-result.json` (611 files verified, package hashes match, 9 profile
+  files verified, production data unchanged, backups `before-collaboration-20260928-163443.zip` and
+  `before-collaboration-data-20260928-163443.zip`). Reopened as 0.16.0.0 with 3 rooms and 1 task intact:
+  `artifacts\hardening-016-reopen-result.json`.

@@ -15,5 +15,5 @@
 - [x] Context records archived at the cap behind a watermark.
 - [x] Regression cases added; existing suite passes.
 - [x] Package built and desktop smoke checks passed.
-- [ ] Clean checkout built and passed the full suite.
-- [ ] Installed with the user's approval.
+- [x] Clean checkout built and passed the full suite.
+- [x] Installed with the user's approval (September 28, 2026) and reopened as 0.16.0.0.
