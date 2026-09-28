@@ -10,9 +10,10 @@ public sealed partial class CollaborationStore
             throw new IOException("Invalid saved source identity.");
         return $"source-{taskId}-{hash}.json";
     }
+    internal static bool WouldExternalize(string author, string text) => author == "You" ? TaskContextBuilder.Bytes(text) > 24000 : text.Length > 128000;
     private TaskContextRecord ImportRecord(string taskId, string id, string author, string text, DateTimeOffset created)
     {
-        var external = author == "You" ? TaskContextBuilder.Bytes(text) > 24000 : text.Length > 128000;
+        var external = WouldExternalize(author, text);
         if (!external) return new(id, author == "You" ? "user_message" : "agent_message", author, text, created);
         if (text.Length > BoundedText.MaxFrameCharacters) throw new IOException("This message exceeds the saved source limit of four million characters. Split it into separate messages; the conversation remains saved.");
         var hash = TaskContextBuilder.Fingerprint(text);

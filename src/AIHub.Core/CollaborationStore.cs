@@ -193,7 +193,7 @@ public sealed partial class CollaborationStore
             if (original.Entries.Count >= MaxMessages) throw new CollaborationValidationException("This task reached its 512-message storage limit. Start a new task; existing history is retained.");
             var mine = original.Entries.Where(e => e.Message.Envelope.DispatchId == id).ToArray();
             if (mine.Length >= 16) throw new CollaborationValidationException("Dispatch message limit reached.");
-            if (mine.Any(e => IsTerminal(e.Message.Content))) throw new CollaborationValidationException("This dispatch already has its terminal message. Retry its key unchanged or end the turn.");
+            if (mine.Any(LiveTerminal)) throw new CollaborationValidationException("This dispatch already has its terminal message. Retry its key unchanged or end the turn.");
             var content = submission.Content;
             ValidateContextRequest(task, original, dispatch, content);
             Agent? recipient = content.Recipient is null ? null : Enum.Parse<Agent>(content.Recipient);
@@ -216,27 +216,35 @@ public sealed partial class CollaborationStore
             return Receipt(message, false);
         });
     }
+    // A terminal set aside as interrupted (stale review) no longer counts; the dispatch may submit a replacement.
+    private static bool LiveTerminal(StoredCollaborationMessage e) => IsTerminal(e.Message.Content) && e.Message.State is not (DeliveryState.Interrupted or DeliveryState.Canceled);
     internal CollaborationMessage Complete(CollaborationDispatch dispatch)
     {
-        var view = Use(dispatch, (task, document) => (task.Workspace, Terminal: document.Entries.SingleOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && IsTerminal(e.Message.Content)), Findings: document.Findings.Count));
+        var view = Use(dispatch, (task, document) => (task.Workspace, Terminal: document.Entries.LastOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && LiveTerminal(e)), Findings: document.Findings.Count));
         var needsCapture = view.Terminal?.Message.Content.Type is "review_request" or "review_result" || view.Terminal?.Message.Content.Status == "assignment_complete" && view.Findings > 0;
         var captured = needsCapture ? CaptureSnapshot(view.Workspace, dispatch.Token) : null;
         return Use(dispatch, (_, original) =>
         {
-        var terminal = original.Entries.SingleOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && IsTerminal(e.Message.Content));
+        var terminal = original.Entries.LastOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && LiveTerminal(e));
         if (terminal is null) throw new CollaborationValidationException("Submit exactly one terminal message: a peer request/review result, or status blocked, assignment_complete, or no_further_contribution. Prose cannot finish a structured dispatch.");
         var document = Copy(original);
         if (terminal.Message.Content.Type is "review_request" or "review_result" || terminal.Message.Content.Status == "assignment_complete" && document.Findings.Count > 0)
         {
             var current = captured ?? throw new IOException("Review state changed during completion; retry with current evidence.");
             if (!Fresh(document, terminal.Message.Envelope.SnapshotRef, current))
-                throw new IOException("Project changed after review submission, or snapshot coverage is incomplete. Review is retained as interrupted; request a new review.");
+            {
+                // Set the stale review aside and let the same dispatch resubmit after re-checking, instead of failing the run.
+                var at = document.Entries.FindIndex(e => e.Message.Envelope.MessageId == terminal.Message.Envelope.MessageId);
+                document.Entries[at] = ChangeState(terminal, DeliveryState.Interrupted, "Project changed after review submission, or snapshot coverage is incomplete; set aside for resubmission.");
+                dispatch.Token.ThrowIfCancellationRequested(); Save(document);
+                throw new CollaborationValidationException("Project changed after your review was submitted, or the snapshot coverage is incomplete (for example a file over 8 MiB). Your review was set aside as interrupted. Re-check the current files and submit a new review_result, or status blocked, with a new idempotency_key.");
+            }
             ValidateEvidenceAndReview(document, dispatch, terminal.Message.Content, current);
         }
         for (var i = 0; i < document.Entries.Count; i++)
         {
             var entry = document.Entries[i];
-            if (entry.Message.Envelope.DispatchId == dispatch.Id)
+            if (entry.Message.Envelope.DispatchId == dispatch.Id && entry.Message.State == DeliveryState.Accepted)
             {
                 var pending = ChangeState(entry, DeliveryState.Pending, "Sender turn finished successfully.") with { SenderSucceeded = true };
                 document.Entries[i] = entry.Message.Envelope.Recipient is null
@@ -531,4 +539,21 @@ public sealed class CollaborationDispatch : ICollaborationTools
     internal CollaborationMessage Complete() => store.Complete(this);
     internal void Abort(string reason) => store.Abort(this, reason);
     internal string? Observe(AgentEvent item) => store.Observe(this, item);
+    // Evidence capture hashes the workspace, so it runs on a sequential background chain per dispatch,
+    // never on the provider's stdout reader. Callers drain the chain before completing or aborting.
+    private readonly object observeGate = new();
+    private Task observing = Task.CompletedTask;
+    internal void Enqueue(AgentEvent item, Action<string> notice, Action<string> failure)
+    {
+        lock (observeGate)
+        {
+            observing = observing.ContinueWith(_ =>
+            {
+                try { if (store.Observe(this, item) is { } text) notice(text); }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { failure(ex.Message); }
+            }, CancellationToken.None, TaskContinuationOptions.RunContinuationsAsynchronously, TaskScheduler.Default);
+        }
+    }
+    internal Task DrainAsync() { lock (observeGate) return observing; }
 }

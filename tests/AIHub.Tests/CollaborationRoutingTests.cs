@@ -68,9 +68,11 @@ internal static class CollaborationRoutingTests
         public string? SessionId => agent + "-native-fixture";
         public event Action<AgentEvent>? Event;
         public Func<Approval, CancellationToken, Task<Decision>>? RequestApproval { get; set; }
+        public void Emit(AgentEvent item) => Event?.Invoke(item);
         public async Task<AgentReply> SendAsync(string prompt, CancellationToken token)
         {
             await Task.Delay(1, token); host.BindSession(SessionId!);
+            StructuredClientEvents.Hook?.Invoke(this);
             var reply = await respond(prompt, token); Event?.Invoke(new(agent, EventKind.Message, reply)); return new(reply, SessionId);
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

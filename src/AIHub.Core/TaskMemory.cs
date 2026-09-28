@@ -140,8 +140,16 @@ public sealed class TaskMemory
         {
             if (!Current(claim)) return false;
             var task = Find(claim.TaskId);
-            Mutate(task, () => { task.State = state; task.Reason = Bound(reason, 2000); task.Owner = ""; });
-            claims.Remove(task.Id); return true;
+            // The claim is released before persisting: a failed final write must never leave the task owned forever.
+            claims.Remove(task.Id);
+            try { Mutate(task, () => { task.State = state; task.Reason = Bound(reason, 2000); task.Owner = ""; }); }
+            catch
+            {
+                // Mutate rolled the list entry back to a copy; the run is still over, so the live entry ends in memory and is persisted later.
+                var live = Find(claim.TaskId); live.State = state; live.Reason = Bound(reason, 2000); live.Owner = ""; live.Updated = DateTimeOffset.UtcNow;
+                throw;
+            }
+            return true;
         }
     }
     public void AddNote(string id, string text)

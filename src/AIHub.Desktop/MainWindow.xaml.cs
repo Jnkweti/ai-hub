@@ -894,7 +894,11 @@ public partial class MainWindow : Window
         closing = true; saveTimer.Stop();
         // Closing must return before Close is called again, including when stopping completes synchronously.
         await Dispatcher.Yield(DispatcherPriority.Background);
-        await DisposeAllWorkersAsync();
-        MarkInterrupted(); Save(); await audit.DisposeAsync(); closeAllowed = true; Close();
+        // Bounded and fail-safe: a provider that will not stop, or a failing save, must not leave a window that cannot close.
+        try { await DisposeAllWorkersAsync().WaitAsync(TimeSpan.FromSeconds(20)); }
+        catch (Exception ex) { audit.Record(AuditCode.UnhandledError, exception: ex); }
+        try { MarkInterrupted(); Save(); } catch (Exception ex) { audit.Record(AuditCode.StorageError, exception: ex); }
+        try { await audit.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)); } catch (Exception) { }
+        closeAllowed = true; Close();
     }
 }

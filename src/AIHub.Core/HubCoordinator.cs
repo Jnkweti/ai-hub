@@ -103,14 +103,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     lock (clientGate) if (!clients.TryGetValue(agent, out var current) || current != client) return;
                     if (e.Kind == EventKind.Tool && e.ItemId.Length > 0) toolEvents.AddOrUpdate(agent, 1, (_, count) => count + 1);
                     if (collaboration is not null)
-                    {
-                        try
-                        {
-                            if (currentDispatch?.Observe(e) is { } notice) Event?.Invoke(new(agent, EventKind.Status, notice));
-                        }
-                        catch (OperationCanceledException) { return; }
-                        catch (Exception ex) { Event?.Invoke(new(agent, EventKind.Error, "Native evidence was not saved: " + ex.Message)); }
-                    }
+                        currentDispatch?.Enqueue(e, notice => Event?.Invoke(new(agent, EventKind.Status, notice)),
+                            error => Event?.Invoke(new(agent, EventKind.Error, "Native evidence was not saved: " + error)));
                     // Publish one final conversation contribution after terminal commit. Native tools/status stay live.
                     if (collaboration is not null && e.Kind is EventKind.TextDelta or EventKind.Message) return;
                     Event?.Invoke(e);
@@ -430,6 +424,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         for (var attempt = 0; ; attempt++)
                         {
                             turnReply = await Speak(next, previousAgent, visible, turns == 0, dispatch, host, repair, followUp, synthesis);
+                            await dispatch.DrainAsync(); // Evidence from this turn is recorded before its terminal message is validated.
                             if (host.LimitReached) { await PauseAsync("Structured tool validation limit reached. Review the task before continuing."); return; }
                             try { terminal = dispatch.Complete(); break; }
                             catch (CollaborationValidationException ex)
@@ -447,6 +442,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     }
                     finally
                     {
+                        try { await dispatch.DrainAsync(); } catch (Exception) { }
                         try { dispatch.Abort("The dispatch ended without a successful terminal commit."); }
                         finally
                         {

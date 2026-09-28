@@ -12,7 +12,7 @@ public sealed record WorkAssignment(string Id, Agent Agent, string Role, string 
 public sealed record CommonContext(long Revision, string Hash, string Text, string[] IncludedIds, string[] OmittedIds, int Bytes, string[]? PartialIds = null);
 public sealed record ContextInputManifest(string Id, string DispatchId, Agent Agent, long Generation, long Revision,
     string CommonHash, string PromptHash, string Prompt, string[] IncludedIds, string[] OmittedIds, int InputBytes,
-    DateTimeOffset PreparedAt, string Outcome = "prepared", string? NativeSession = null, string[]? PartialIds = null, string? AssignmentId = null);
+    DateTimeOffset PreparedAt, string Outcome = "prepared", string? NativeSession = null, string[]? PartialIds = null, string? AssignmentId = null, bool PromptRetained = true);
 
 /// <summary>Pure selection/rendering, independent of providers and scheduling.</summary>
 public static class TaskContextBuilder
@@ -106,8 +106,12 @@ public sealed partial class CollaborationStore
     internal void SynchronizeContext(TaskClaim claim, IReadOnlyList<ConversationEntry> conversation, string currentPrompt)
     {
         // File I/O for large sources happens outside both state locks; commit rechecks the live claim.
-        memory.WithClaim(claim, _ => 0);
-        var imports = conversation.Where(e => e.Route != "Task progress").Select(e =>
+        // Entries already imported with identical content are skipped before any hashing or file I/O.
+        var known = memory.WithClaim(claim, task => { lock (gate) return Load(task).ContextRecords.Where(r => r.Id.StartsWith("chat:", StringComparison.Ordinal)).ToDictionary(r => r.Id, r => r); });
+        bool Unchanged(ConversationEntry e) => known.TryGetValue("chat:" + e.Id, out var r) &&
+            (!r.SourceStored ? r.Text == e.Text && !WouldExternalize(e.Speaker, e.Text) // An inline original that is now large still migrates to source storage.
+                             : r.OriginalCharacters == e.Text.Length && r.OriginalHash == TaskContextBuilder.Fingerprint(e.Text));
+        var imports = conversation.Where(e => e.Route != "Task progress" && !Unchanged(e)).Select(e =>
             ImportRecord(claim.TaskId, "chat:" + e.Id, e.Speaker, e.Text, e.CreatedAt ?? DateTimeOffset.UtcNow)).ToList();
         if (!conversation.Any(e => e.Speaker == "You" && e.Text == currentPrompt))
             imports.Add(ImportRecord(claim.TaskId, "user-run:" + claim.Generation, "You", currentPrompt, DateTimeOffset.UtcNow));
@@ -194,9 +198,29 @@ public sealed partial class CollaborationStore
             var document = Copy(Load(task));
             var manifest = new ContextInputManifest(Guid.NewGuid().ToString("N"), dispatchId, agent, claim.Generation, common.Revision,
                 common.Hash, TaskContextBuilder.Fingerprint(prompt), prompt, common.IncludedIds, common.OmittedIds, TaskContextBuilder.Bytes(prompt), DateTimeOffset.UtcNow, PartialIds: common.PartialIds, AssignmentId: assignmentId ?? dispatchId);
-            document.ContextInputs.Add(manifest); Save(document); return manifest;
+            document.ContextInputs.Add(manifest);
+            PruneInputs(document, claim.Generation);
+            Save(document); return manifest;
         }
     });
+    public const int MaxInputs = 128, RetainedPrompts = 24;
+    /// <summary>
+    /// Keeps the ledger open-ended: prompt text is kept only for the newest manifests (hash, size and ids stay for all),
+    /// and manifests of earlier generations are evicted oldest-first once the cap is reached. Only a cap made entirely of
+    /// the current generation's manifests still fails, and then explicitly.
+    /// </summary>
+    private static void PruneInputs(CollaborationDocument document, long generation)
+    {
+        while (document.ContextInputs.Count > MaxInputs)
+        {
+            var oldest = document.ContextInputs.FindIndex(i => i.Generation < generation);
+            if (oldest < 0) throw new IOException("This phase produced more than 128 exact host inputs. Send a new message to start a new phase; existing records are retained.");
+            document.ContextInputs.RemoveAt(oldest);
+        }
+        var retained = document.ContextInputs.Count - RetainedPrompts;
+        for (var i = 0; i < retained; i++)
+            if (document.ContextInputs[i].PromptRetained) document.ContextInputs[i] = document.ContextInputs[i] with { Prompt = "", PromptRetained = false };
+    }
     internal void FinishInput(TaskClaim claim, string manifestId, string outcome, string? session) => memory.WithClaim(claim, task =>
     {
         lock (gate)
@@ -244,8 +268,8 @@ public sealed partial class CollaborationStore
             if (input is null || !Guid.TryParseExact(input.Id, "N", out _) || !manifestIds.Add(input.Id) || !Enum.IsDefined(input.Agent) ||
                 input.Generation < 1 || input.Generation > task.Generation || input.Revision < 0 || input.Revision > document.ContextRevision || input.Prompt is null ||
                 string.IsNullOrWhiteSpace(input.DispatchId) || input.CommonHash is not { Length: 64 } || !input.CommonHash.All(Uri.IsHexDigit) ||
-                input.InputBytes != TaskContextBuilder.Bytes(input.Prompt) || input.InputBytes > TaskContextBuilder.PromptByteLimit ||
-                input.PromptHash != TaskContextBuilder.Fingerprint(input.Prompt) || input.IncludedIds is null || input.OmittedIds is null ||
+                input.PromptRetained && (input.InputBytes != TaskContextBuilder.Bytes(input.Prompt) || input.PromptHash != TaskContextBuilder.Fingerprint(input.Prompt)) ||
+                !input.PromptRetained && input.Prompt.Length > 0 || input.InputBytes > TaskContextBuilder.PromptByteLimit || input.IncludedIds is null || input.OmittedIds is null ||
                 input.Outcome is not ("prepared" or "responded" or "failed" or "interrupted"))
                 throw new IOException("Invalid saved input manifest; existing data was preserved.");
         var assignmentIds = new HashSet<string>();

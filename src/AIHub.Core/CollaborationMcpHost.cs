@@ -71,10 +71,17 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
             while (!life.IsCancellationRequested)
             {
                 await slots.WaitAsync(life.Token).ConfigureAwait(false);
-                var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                NamedPipeServerStream pipe;
+                try
+                {
+                    pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
+                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { slots.Release(); await Task.Delay(100, life.Token).ConfigureAwait(false); continue; } // Keep listening; the bridge retries its connection.
                 try { await pipe.WaitForConnectionAsync(life.Token).ConfigureAwait(false); }
-                catch { pipe.Dispose(); slots.Release(); throw; }
+                catch (OperationCanceledException) { pipe.Dispose(); slots.Release(); throw; }
+                catch (Exception) { pipe.Dispose(); slots.Release(); await Task.Delay(100, life.Token).ConfigureAwait(false); continue; }
                 connections.RemoveAll(t => t.IsCompletedSuccessfully);
                 connections.Add(ServeOwned(pipe));
             }
@@ -85,8 +92,9 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
         {
             await using (pipe)
             {
+                // Transport failures (handshake timeouts, dropped pipes) are not the agent's fault and do not count as repairs.
                 try { await ServeConnectionAsync(pipe).ConfigureAwait(false); }
-                catch (Exception) { if (!life.IsCancellationRequested) Interlocked.Increment(ref repairs); }
+                catch (Exception) { }
                 finally
                 {
                     // Disconnect each instance explicitly before closing it so every bridge observes EOF,
@@ -163,7 +171,11 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
             return ToolResult(current.Call(agent, dispatchId, sessionId, name, arguments, life.Token).ToJsonString(), false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { Interlocked.Increment(ref repairs); return ToolResult(ex.Message, true); }
+        {
+            // Only an invalid structured submission spends the repair budget; argument mistakes on read tools just return an error.
+            if (name == "submit_message" && ex is CollaborationValidationException) Interlocked.Increment(ref repairs);
+            return ToolResult(ex.Message, true);
+        }
     }
     private static JsonNode ToolResult(string text, bool error) => JsonSerializer.SerializeToNode(new
     { content = new[] { new { type = "text", text } }, isError = error })!;
