@@ -30,7 +30,10 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
     public string Instructions => baseline.Instructions + WorkflowInstructions;
     public string WorkflowInstructions { get; init; } = "";
     public string BridgeExecutable { get; }
-    public const int FrameLimit = 262144;
+    // One frame must hold a whole tool result after wire escaping: the largest tool page is 128,000 characters of
+    // record JSON, quoted once more for the wire. Non-ASCII text is sent as UTF-8 rather than \u escapes.
+    public const int FrameLimit = 1048576;
+    private static readonly JsonSerializerOptions Wire = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     public CollaborationMcpHost(ICollaborationTools tools, Agent agent, string bridgeExecutable, CancellationToken token, string? dispatchId = null)
     {
         if (!Path.IsPathFullyQualified(bridgeExecutable) || !File.Exists(bridgeExecutable))
@@ -49,11 +52,16 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
     }
     /// <summary>Between turns the resident session keeps its pipe but has no dispatch; tool calls are refused, not counted.</summary>
     public void Detach() => tools = null;
-    public void BindSession(string id)
+    /// <summary>
+    /// Binds the provider's native session. A different id later means the CLI started a new session (a failed resume);
+    /// the phase continues with the new session and the replaced id is returned so the adapter can say so. Never throws
+    /// on the provider's reader thread.
+    /// </summary>
+    public string? BindSession(string id)
     {
         if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("A native session ID is required.");
-        var previous = Interlocked.CompareExchange(ref sessionId, id, null);
-        if (previous is not null && previous != id) throw new InvalidOperationException("Connection belongs to a different provider session.");
+        var previous = Interlocked.Exchange(ref sessionId, id);
+        return previous is not null && previous != id ? previous : null;
     }
     internal Dictionary<string, string> EnvironmentVariables() => new()
     { ["AIHUB_COLLAB_PIPE"] = pipeName, ["AIHUB_COLLAB_TOKEN"] = secret };
@@ -153,10 +161,10 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
                 result = InvokeTool(p.Str("name"), p?["arguments"]);
             }
             else { await WriteError(id, -32601, "Unsupported method."); continue; }
-            await writer.WriteLineAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString().AsMemory(), life.Token).ConfigureAwait(false);
+            await writer.WriteLineAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString(Wire).AsMemory(), life.Token).ConfigureAwait(false);
         }
         async Task WriteError(JsonNode? id, int code, string message) => await writer.WriteLineAsync(new JsonObject
-        { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = JsonSerializer.SerializeToNode(new { code, message }) }.ToJsonString().AsMemory(), life.Token).ConfigureAwait(false);
+        { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = JsonSerializer.SerializeToNode(new { code, message }) }.ToJsonString(Wire).AsMemory(), life.Token).ConfigureAwait(false);
     }
     internal JsonNode InvokeTool(string name, JsonNode? arguments)
     {
@@ -168,7 +176,7 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
             if (Interlocked.Increment(ref calls) > 256 || Volatile.Read(ref repairs) >= 3)
                 throw new CollaborationValidationException("Dispatch tool/repair limit reached; start a new dispatch.");
             if (sessionId is null) throw new CollaborationValidationException("Native provider session has not been bound.");
-            return ToolResult(current.Call(agent, dispatchId, sessionId, name, arguments, life.Token).ToJsonString(), false);
+            return ToolResult(current.Call(agent, dispatchId, sessionId, name, arguments, life.Token).ToJsonString(Wire), false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

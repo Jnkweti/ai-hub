@@ -17,6 +17,7 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     private readonly StringBuilder streamed = new();
     private int streamedCharacters;
     private readonly CompletedReplyBuffer completed = new();
+    private readonly object turnGate = new(); // Per-turn state is reset by the run thread and written by the reader thread.
     private void Emit(EventKind kind, string message, string id = "", string detail = "") => Event?.Invoke(new(Agent, kind, message, id, detail));
 
     public async Task ConnectAsync(CancellationToken token)
@@ -45,7 +46,7 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     {
         activeToken = token;
         await ConnectAsync(token);
-        streamed.Clear(); completed.Clear(); streamedCharacters = 0; messageId = Guid.NewGuid().ToString("N");
+        lock (turnGate) { streamed.Clear(); completed.Clear(); streamedCharacters = 0; messageId = Guid.NewGuid().ToString("N"); }
         turn = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancel = token.Register(() => turn.TrySetCanceled(token));
         await wire!.WriteAsync(Json.Obj(new
@@ -61,10 +62,23 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     {
         switch (message.Str("type"))
         {
-            case "control_request": _ = HandleRequestAsync(message.DeepClone().AsObject()); break;
-            case "control_cancel_request": requests.Cancel(message.Str("request_id")); break;
+            case "control_request": _ = HandleRequestAsync(message.DeepClone().AsObject()); return;
+            case "control_cancel_request": requests.Cancel(message.Str("request_id")); return;
+        }
+        lock (turnGate) HandleTurn(message);
+    }
+    private void HandleTurn(JsonObject message)
+    {
+        switch (message.Str("type"))
+        {
             case "system":
-                if (message["session_id"] is { } session) { SessionId = session.ToString(); options.Collaboration?.BindSession(SessionId); Emit(EventKind.Session, SessionId); }
+                if (message["session_id"] is { } session)
+                {
+                    SessionId = session.ToString();
+                    if (options.Collaboration?.BindSession(SessionId) is { } replaced)
+                        Emit(EventKind.Status, $"Claude Code started a new native session; session {replaced} did not resume. The phase continues with the new session.");
+                    Emit(EventKind.Session, SessionId);
+                }
                 Emit(EventKind.Status, "Claude · " + message.Str("subtype"), detail: message.ToJsonString());
                 break;
             case "stream_event":

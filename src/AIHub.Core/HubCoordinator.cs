@@ -38,10 +38,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     private Task? running;
     private volatile int epoch;
     private readonly ConcurrentDictionary<Agent, int> toolEvents = new();
+    // Written by the run thread after each turn and by the UI when a room is opened.
     private readonly Dictionary<Agent, ConversationCursor> contextCursors = [];
+    private readonly object cursorGate = new();
     public Func<CancellationToken, Task<IReadOnlyList<ConversationEntry>>>? ReadConversation { get; set; }
     public event Action<Agent, ConversationCursor>? ContextSynchronized;
-    public void RestoreContext(Agent agent, ConversationCursor cursor) => contextCursors[agent] = cursor.Copy();
+    public void RestoreContext(Agent agent, ConversationCursor cursor) { lock (cursorGate) contextCursors[agent] = cursor.Copy(); }
     public bool AutoExchange { get; set; } = true;
     public bool AllowFollowUpContributions { get; set; } = true;
     public event Action<AuditCode, Agent?>? Diagnostic;
@@ -55,9 +57,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     // Fresh clients configured with AllowEdits=false, regardless of the main task's permissions.
     public Func<Agent, CollaborationMcpHost, IAgentClient>? ContextResearchFactory { get; set; }
     public Func<Agent, IAgentClient>? PreparationFactory { get; set; }
-    private Agent? speaking;
+    // Turn state is tagged with the run epoch so a stopped run's late cleanup can never clear the next run's state.
+    private sealed record SpeakingTurn(int Epoch, Agent Agent);
+    private sealed record LiveDispatch(int Epoch, CollaborationDispatch Dispatch);
+    private volatile SpeakingTurn? speaking;
     private Agent? interruptedSpeaker;
-    private CollaborationDispatch? currentDispatch;
+    private volatile LiveDispatch? currentDispatch;
     // User messages that join a running phase as events instead of stopping it.
     private readonly ConcurrentQueue<string> interjections = new();
     public bool IsRunning => running is { IsCompleted: false };
@@ -102,8 +107,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     if (clientEpoch != epoch) return;
                     lock (clientGate) if (!clients.TryGetValue(agent, out var current) || current != client) return;
                     if (e.Kind == EventKind.Tool && e.ItemId.Length > 0) toolEvents.AddOrUpdate(agent, 1, (_, count) => count + 1);
-                    if (collaboration is not null)
-                        currentDispatch?.Enqueue(e, notice => Event?.Invoke(new(agent, EventKind.Status, notice)),
+                    if (collaboration is not null && currentDispatch is { } live && live.Epoch == clientEpoch)
+                        live.Dispatch.Enqueue(e, notice => Event?.Invoke(new(agent, EventKind.Status, notice)),
                             error => Event?.Invoke(new(agent, EventKind.Error, "Native evidence was not saved: " + error)));
                     // Publish one final conversation contribution after terminal commit. Native tools/status stay live.
                     if (collaboration is not null && e.Kind is EventKind.TextDelta or EventKind.Message) return;
@@ -239,7 +244,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
         {
             var snapshot = await Snapshot();
             var client = Client(speaker, runEpoch, host);
-            var cursor = contextCursors.GetValueOrDefault(speaker);
+            ConversationCursor? cursor; lock (cursorGate) cursor = contextCursors.GetValueOrDefault(speaker);
             var resumed = client.SessionId is not null;
             var seen = resumed && cursor is not null && cursor.SessionId == client.SessionId
                 ? snapshot.Where(m => cursor.MessageHashes?.GetValueOrDefault(m.Id) == ConversationTurns.ContentHash(m)).Select(m => m.Id).ToHashSet(StringComparer.Ordinal) : [];
@@ -331,7 +336,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
             if (first && dispatch is null && snapshot.LastOrDefault(m => m.Speaker == "You" && m.Text == prompt) is { } currentUser) hashes[currentUser.Id] = ConversationTurns.ContentHash(currentUser);
             hashes = hashes.TakeLast(ConversationTurns.ContextMessageLimit).ToDictionary(p => p.Key, p => p.Value);
             var updated = new ConversationCursor { SessionId = reply.SessionId, MessageIds = hashes.Keys.ToArray(), MessageHashes = hashes };
-            contextCursors[speaker] = updated;
+            lock (cursorGate) contextCursors[speaker] = updated;
             ContextSynchronized?.Invoke(speaker, updated.Copy());
             return reply;
         }
@@ -399,14 +404,14 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         token.ThrowIfCancellationRequested();
                     }
                     if (!TaskMemory.Own(claim, next)) throw new OperationCanceledException(token);
-                    speaking = next;
+                    speaking = new(runEpoch, next);
                     var dispatch = CollaborationStore.OpenDispatch(claim, next, participants, incomingId, token);
                     var followUp = incomingId is null && contributed.Contains(next) && !contextReady;
                     var synthesis = contextReady;
                     CollaborationStore.Assign(claim, new(dispatch.Id, next, incomingId is null ? (turns == 0 ? "contribution" : "contribution check") : "peer assignment",
                         dispatch.Incoming?.Content.RequestedAction ?? promptReference, incomingId is null ? [] : [incomingId],
                         dispatch.Incoming?.Content.Scope ?? new([], []), "Publish one terminal contribution or a quiet pass; claims are not host certification.", claim.Generation, "running", DateTimeOffset.UtcNow));
-                    currentDispatch = dispatch;
+                    currentDispatch = new(runEpoch, dispatch);
                     var checkContribution = previousAgent is not null && incomingId is null;
                     CollaborationMessage terminal;
                     AgentReply? turnReply = null;
@@ -446,8 +451,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         try { dispatch.Abort("The dispatch ended without a successful terminal commit."); }
                         finally
                         {
-                            currentDispatch = null;
-                            speaking = null;
+                            // Fenced on this run: a stopped run's late cleanup must not clear the next run's dispatch or speaker.
+                            if (currentDispatch is { } live && ReferenceEquals(live.Dispatch, dispatch)) currentDispatch = null;
+                            if (speaking is { } spoken && spoken.Epoch == runEpoch) speaking = null;
                             hosts.GetValueOrDefault(next)?.Detach(); // The provider stays resident; only the dispatch ends.
                             TaskMemory.ReleaseSpeaker(claim, next);
                         }
@@ -638,11 +644,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     }
     private async Task StopCoreAsync()
     {
-        if (speaking is { } current && running is { IsCompleted: false }) interruptedSpeaker = current;
+        if (speaking is { } current && current.Epoch == epoch && running is { IsCompleted: false }) interruptedSpeaker = current.Agent;
         var stopped = active; var pending = running;
         active = null; running = null; interjections.Clear();
         stopped?.Cancel();
         var detached = DetachClients();
+        currentDispatch = null; speaking = null; // The stopped run's turn state ends here; its own cleanup is fenced on the old epoch.
         try
         {
             foreach (var client in detached.Clients)

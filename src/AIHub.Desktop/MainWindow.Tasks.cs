@@ -156,12 +156,17 @@ public partial class MainWindow
                 catch (IOException ex) { details.Text += "\nCollaboration history unavailable: " + ex.Message; }
             }
         }
-        bool refreshing = false;
-        void Refresh()
+        bool refreshing = false; string? shown = null;
+        void Refresh(bool force = false)
         {
+            // The per-second tick rebuilds the list and rereads the ledger only when a task actually changed.
+            var tasks = taskMemory.ForWorkspace(workspace).Where(t => rooms.Any(r => r.Id == t.RoomId)).ToArray();
+            var signature = string.Join("|", tasks.Select(t => $"{t.Id}:{t.State}:{t.Owner}:{t.Updated.UtcTicks}:{pendingInputs.Values.Any(p => p.Room.Id == t.RoomId && p.Owner.TaskId == t.Id)}"));
+            if (!force && signature == shown) return;
+            shown = signature;
             var selected = (list.SelectedItem as TaskRow)?.Task.Id ?? current.ActiveTaskId;
             refreshing = true;
-            list.ItemsSource = taskMemory.ForWorkspace(workspace).Where(t => rooms.Any(r => r.Id == t.RoomId)).Select(t =>
+            list.ItemsSource = tasks.Select(t =>
             {
                 var room = rooms.First(r => r.Id == t.RoomId);
                 var waiting = pendingInputs.Values.Any(p => p.Room.Id == t.RoomId && p.Owner.TaskId == t.Id);
@@ -175,7 +180,7 @@ public partial class MainWindow
         add.Click += (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
-            try { taskMemory.AddNote(row.Task.Id, note.Text); note.Clear(); notice.Text = "Note saved. It will be included in the next worker briefing."; Refresh(); }
+            try { taskMemory.AddNote(row.Task.Id, note.Text); note.Clear(); notice.Text = "Note saved. It will be included in the next worker briefing."; Refresh(true); }
             catch (Exception ex) { notice.Text = ex.Message; }
         };
         stop.Click += async (_, _) =>
@@ -187,7 +192,7 @@ public partial class MainWindow
                 if (!message.Text.EndsWith("[Stopped]")) message.Text += "\n\n[Stopped]";
             worker.Room.PauseReason = "You stopped the agents. Completed file changes are kept.";
             if (ReferenceEquals(current, worker.Room)) { MarkInterrupted(); SetPause(worker.Room.PauseReason); }
-            Save(); Refresh();
+            Save(); Refresh(true);
         };
         void OpenRoom(WorkTask task)
         {
@@ -215,7 +220,7 @@ public partial class MainWindow
             catch (Exception ex) { notice.Text = ex.Message; }
         };
         create.Click += (_, _) => { window.Close(); NewTask(); };
-        window.Content = grid; Refresh();
+        window.Content = grid; Refresh(true);
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) => Refresh(); timer.Start();
         window.Closed += (_, _) => timer.Stop(); window.ShowDialog();

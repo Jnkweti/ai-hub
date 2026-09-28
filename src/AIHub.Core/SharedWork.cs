@@ -12,9 +12,21 @@ public sealed record SharedWork(string Id, string Key, string Kind, string Opera
 public sealed partial class CollaborationStore
 {
     private const int WorkLimit = 128;
-    private static string WorkEnvironment() => TaskContextBuilder.Fingerprint(Environment.OSVersion + "\n" + Environment.Version + "\n" +
-        string.Join("\n", Environment.GetEnvironmentVariables().Cast<DictionaryEntry>().OrderBy(e => e.Key.ToString(), StringComparer.Ordinal)
-            .Select(e => e.Key + "=" + e.Value)));
+    private static readonly System.Text.RegularExpressions.Regex NamedVariables = new(
+        @"\$env:([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    /// <summary>
+    /// The environment a check depends on: OS and runtime versions, PATH, and the variables the operation names.
+    /// A curated set lets a completed check be reused after a restart; hashing every variable never could.
+    /// </summary>
+    internal static string WorkEnvironment(string operation)
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase) { "PATH" };
+        foreach (System.Text.RegularExpressions.Match match in NamedVariables.Matches(operation))
+            names.Add(match.Groups.Cast<System.Text.RegularExpressions.Group>().Skip(1).First(g => g.Success).Value);
+        return TaskContextBuilder.Fingerprint(Environment.OSVersion + "\n" + Environment.Version + "\n" +
+            string.Join("\n", names.Select(n => n.ToUpperInvariant() + "=" + (Environment.GetEnvironmentVariable(n) ?? ""))));
+    }
     private static void WorkFields(JsonNode? args, params string[] keys)
     {
         if (args is not JsonObject o || o.Count != keys.Length || keys.Any(k => !o.ContainsKey(k)))
@@ -54,7 +66,7 @@ public sealed partial class CollaborationStore
         var kind = WorkString(args!["kind"], 16); var operation = WorkString(args["operation"], 2000).Trim();
         if (kind is not ("discovery" or "check")) throw new CollaborationValidationException("Work kind must be discovery or check.");
         var scope = WorkScope(args["scope"], task.Workspace); var reusable = WorkBool(args["reusable"]); var independent = WorkBool(args["independent"]);
-        var environment = WorkEnvironment();
+        var environment = WorkEnvironment(operation);
         var key = TaskContextBuilder.Fingerprint(JsonSerializer.Serialize(new { kind, operation, scope, snapshot.Fingerprint,
             environment = kind == "check" ? environment : "", generation = kind == "check" ? dispatch.Claim.Generation : 0 }));
         var retry = original.SharedWork.LastOrDefault(w => w.Key == key && w.DispatchId == dispatch.Id && w.Independent == independent && w.State == "running");
@@ -90,7 +102,7 @@ public sealed partial class CollaborationStore
         if (work.State != "running") throw new CollaborationValidationException("This work claim is closed.");
         var observed = evidence.Select(e => original.Evidence.SingleOrDefault(v => v.Id == e && v.DispatchId == dispatch.Id && v.Finished)
             ?? throw new CollaborationValidationException("Evidence must be a finished native observation from this dispatch.")).ToArray();
-        var stable = snapshot.Complete && work.Fingerprint == snapshot.Fingerprint && work.EnvironmentHash == WorkEnvironment();
+        var stable = snapshot.Complete && work.Fingerprint == snapshot.Fingerprint && work.EnvironmentHash == WorkEnvironment(work.Operation);
         var success = true;
         if (work.Kind == "check")
         {

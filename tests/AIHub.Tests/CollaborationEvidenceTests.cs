@@ -69,13 +69,17 @@ internal static class CollaborationEvidenceTests
             f.Submit(reviewer, result); Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "checked", "Peer check did not advance finding");
             return Task.CompletedTask;
         });
-        await test("incomplete snapshot cannot certify a review and the stale terminal is set aside for resubmission", () =>
+        await test("a large asset keeps snapshots complete, and a stale review terminal is set aside for resubmission", () =>
         {
+            // A 9 MiB file is fingerprinted by size and time; it no longer makes the snapshot incomplete. Changing a file
+            // after the review request is what makes the terminal stale.
             using var f = new Fixture(); var large = Path.Combine(f.Workspace, "large.bin"); using (var file = File.Create(large)) file.SetLength(9 * 1024 * 1024);
             var d = f.Open(Agent.Codex); f.Call(d, "submit_message", Message("review_request"));
-            try { d.Complete(); throw new Exception("Incomplete snapshot certified"); } catch (CollaborationValidationException) { }
+            Check(f.Store.Read(f.Claim.TaskId).Snapshots.Values.Single().Complete, "A large asset made the submission snapshot incomplete");
+            File.AppendAllText(Path.Combine(f.Workspace, "src/main.cs"), "changed after the review request");
+            try { d.Complete(); throw new Exception("Stale snapshot certified"); } catch (CollaborationValidationException) { }
             var entries = f.Store.Read(f.Claim.TaskId).Entries;
-            Check(entries.Single().Message.State == DeliveryState.Interrupted && !f.Store.Read(f.Claim.TaskId).Snapshots.Values.Single().Complete, "Stale review was not set aside with its coverage limitation");
+            Check(entries.Single().Message.State == DeliveryState.Interrupted, "Stale review was not set aside");
             // The same dispatch may now submit a replacement terminal message instead of failing the run.
             f.Call(d, "submit_message", CollaborationRoutingTests.Message(status: "blocked"));
             var blocked = d.Complete();

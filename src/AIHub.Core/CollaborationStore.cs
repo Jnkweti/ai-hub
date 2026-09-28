@@ -33,6 +33,9 @@ public sealed class CollaborationDocument
     public long LastEventSequence { get; set; }
     public List<CollaborationEvent> Events { get; set; } = [];
     public long EvictedEvents { get; set; }
+    // Conversation records archived at the record cap: how many, and the newest creation time among them.
+    public DateTimeOffset? ArchivedThrough { get; set; }
+    public long ArchivedRecords { get; set; }
 }
 
 /// <summary>One store per application owner. Lock order is always TaskMemory, then this store.</summary>
@@ -46,34 +49,45 @@ public sealed partial class CollaborationStore
     private readonly Dictionary<string, CollaborationDocument> documents = [];
     private readonly Dictionary<string, CollaborationDispatch> active = [];
     private readonly Dictionary<string, string> unavailable = [];
-    public CollaborationStore(LocalStore store, TaskMemory memory, bool preserveUnavailableTasks = false)
+    private readonly bool preserveUnavailableTasks;
+    private readonly HashSet<string> recovered = [];
+    private readonly Dictionary<string, long> touched = [];
+    private long clock;
+    /// <summary>Ledgers held in memory at once; the rest reload from disk on demand.</summary>
+    public const int CacheLimit = 16;
+    /// <summary>Raised from the background recovery pass for a ledger that cannot be read (with <c>preserveUnavailableTasks</c>).</summary>
+    public event Action<string>? RecoveryNotice;
+    public Task Recovery { get; private set; } = Task.CompletedTask;
+    /// <param name="deferRecovery">Skip the startup pass; <see cref="BeginRecovery"/> runs it in the background. Every ledger is
+    /// recovered on its first load in this process regardless, so nothing depends on the pass having finished.</param>
+    public CollaborationStore(LocalStore store, TaskMemory memory, bool preserveUnavailableTasks = false, bool deferRecovery = false)
     {
-        this.store = store; this.memory = memory;
+        this.store = store; this.memory = memory; this.preserveUnavailableTasks = preserveUnavailableTasks;
         // Construct once at application startup, after TaskMemory has recovered abandoned runs.
+        if (!deferRecovery) RecoverAll(false);
+    }
+    public void BeginRecovery() => Recovery = Task.Run(() => RecoverAll(true));
+    private void RecoverAll(bool background)
+    {
         foreach (var task in memory.AllTasks())
         {
-          try { memory.WithTask(task.Id, current =>
-          {
-            lock (gate)
+            try
             {
-                if (!File.Exists(Path.Combine(store.DirectoryPath, Filename(current.Id)))) return 0;
-                var document = Copy(Load(current)); var changed = false;
-                for (var i = 0; i < document.Entries.Count; i++)
-                    if (Unsettled(document.Entries[i]))
-                    { document.Entries[i] = ChangeState(document.Entries[i], DeliveryState.Interrupted, "Application restarted; review history and explicitly continue. No message was replayed."); changed = true; }
-                changed |= InterruptContext(document);
-                changed |= InterruptWork(document);
-                if (changed) Save(document);
-                return 0;
+                memory.WithTask(task.Id, current =>
+                {
+                    lock (gate) { if (!recovered.Contains(current.Id) && File.Exists(Path.Combine(store.DirectoryPath, Filename(current.Id)))) Load(current); }
+                    return 0;
+                });
             }
-          }); }
-          catch (Exception ex) when (preserveUnavailableTasks && ex is IOException or UnauthorizedAccessException)
-          {
-              unavailable[task.Id] = ex.Message;
-              store.RecoveryNotices.Add("Task collaboration history unavailable; preserved for recovery: " + task.Id + ". " + ex.Message);
-          }
+            catch (Exception ex) when (preserveUnavailableTasks && ex is IOException or UnauthorizedAccessException)
+            {
+                lock (gate) unavailable[task.Id] = ex.Message;
+                var notice = "Task collaboration history unavailable; preserved for recovery: " + task.Id + ". " + ex.Message;
+                if (background) RecoveryNotice?.Invoke(notice); else store.RecoveryNotices.Add(notice);
+            }
         }
     }
+    internal int CachedDocuments { get { lock (gate) return documents.Count; } }
     public CollaborationDocument Read(string taskId) => memory.WithTask(taskId, task => { lock (gate) return Copy(Load(task)); });
     public CollaborationDispatch OpenDispatch(TaskClaim claim, Agent agent, IReadOnlyCollection<Agent> participants,
         string? incomingMessageId, CancellationToken token) => memory.WithOwner(claim, agent, task =>
@@ -237,7 +251,7 @@ public sealed partial class CollaborationStore
                 var at = document.Entries.FindIndex(e => e.Message.Envelope.MessageId == terminal.Message.Envelope.MessageId);
                 document.Entries[at] = ChangeState(terminal, DeliveryState.Interrupted, "Project changed after review submission, or snapshot coverage is incomplete; set aside for resubmission.");
                 dispatch.Token.ThrowIfCancellationRequested(); Save(document);
-                throw new CollaborationValidationException("Project changed after your review was submitted, or the snapshot coverage is incomplete (for example a file over 8 MiB). Your review was set aside as interrupted. Re-check the current files and submit a new review_result, or status blocked, with a new idempotency_key.");
+                throw new CollaborationValidationException("Project changed after your review was submitted, or the snapshot coverage is incomplete. Your review was set aside as interrupted. Re-check the current files and submit a new review_result, or status blocked, with a new idempotency_key.");
             }
             ValidateEvidenceAndReview(document, dispatch, terminal.Message.Content, current);
         }
@@ -321,7 +335,7 @@ public sealed partial class CollaborationStore
                 foreach (var name in sources.Keys) store.Delete(name);
                 foreach (var id in existing.Keys) store.Delete(Filename(id));
                 deleteConversation();
-                foreach (var id in taskIds) documents.Remove(id);
+                foreach (var id in taskIds) { documents.Remove(id); touched.Remove(id); }
             }
             catch
             {
@@ -334,12 +348,33 @@ public sealed partial class CollaborationStore
     private CollaborationDocument Load(WorkTask task)
     {
         if (unavailable.TryGetValue(task.Id, out var reason)) throw new IOException("Collaboration history was preserved and this task cannot dispatch: " + reason);
-        if (documents.TryGetValue(task.Id, out var found)) return found;
+        if (documents.TryGetValue(task.Id, out var found)) { touched[task.Id] = ++clock; return found; }
         var path = Path.Combine(store.DirectoryPath, Filename(task.Id));
         if (File.Exists(path) && new FileInfo(path).Length > MaxDocumentBytes) throw new IOException("Collaboration history exceeds its storage bound; the existing file was preserved.");
         var document = store.Load(Filename(task.Id), () => new CollaborationDocument { TaskId = task.Id, RoomId = task.RoomId, Workspace = task.Workspace }, failOnInvalid: true);
         ValidateSaved(document, task);
-        documents.Add(task.Id, document); return document;
+        Cache(document);
+        if (!recovered.Add(task.Id)) return document;
+        // First load in this process: work left unsettled by an earlier process is interrupted, never replayed.
+        var repaired = Copy(document); var changed = false;
+        for (var i = 0; i < repaired.Entries.Count; i++)
+            if (Unsettled(repaired.Entries[i]))
+            { repaired.Entries[i] = ChangeState(repaired.Entries[i], DeliveryState.Interrupted, "Application restarted; review history and explicitly continue. No message was replayed."); changed = true; }
+        changed |= InterruptContext(repaired);
+        changed |= InterruptWork(repaired);
+        if (!changed) return document;
+        Save(repaired); return repaired;
+    }
+    /// <summary>Keeps the most recently used ledgers in memory; a task with an open dispatch is never evicted.</summary>
+    private void Cache(CollaborationDocument document)
+    {
+        documents[document.TaskId] = document; touched[document.TaskId] = ++clock;
+        while (documents.Count > CacheLimit)
+        {
+            var victim = touched.Where(p => p.Key != document.TaskId && !active.ContainsKey(p.Key)).OrderBy(p => p.Value).Select(p => p.Key).FirstOrDefault();
+            if (victim is null) break;
+            documents.Remove(victim); touched.Remove(victim);
+        }
     }
     private static void ValidateSaved(CollaborationDocument document, WorkTask task)
     {
@@ -402,7 +437,7 @@ public sealed partial class CollaborationStore
         if (JsonSerializer.SerializeToUtf8Bytes(document, new JsonSerializerOptions { WriteIndented = true }).Length > MaxDocumentBytes)
             throw new IOException("Collaboration history is full. Start a new task; existing messages were preserved.");
         store.Save(Filename(document.TaskId), document);
-        documents[document.TaskId] = document;
+        Cache(document);
     }
     private static CollaborationDocument Copy(CollaborationDocument document) => JsonSerializer.Deserialize<CollaborationDocument>(JsonSerializer.Serialize(document))!;
     internal static string Filename(string taskId)

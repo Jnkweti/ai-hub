@@ -16,6 +16,7 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
     private readonly Dictionary<string, StringBuilder> text = [];
     private readonly CompletedReplyBuffer completed = new();
     private int streamedCharacters;
+    private readonly object turnGate = new(); // Per-turn state is reset by the run thread and written by the reader thread.
     private void Emit(EventKind kind, string message, string id = "", string detail = "") => Event?.Invoke(new(Agent, kind, message, id, detail));
 
     public async Task ConnectAsync(CancellationToken token)
@@ -48,7 +49,8 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
         var result = await wire.RequestAsync(SessionId is null ? "thread/start" : "thread/resume", parameters, token);
         SessionId = result["thread"].Str("id");
         if (string.IsNullOrEmpty(SessionId)) throw new IOException("Codex did not return a thread ID.");
-        options.Collaboration?.BindSession(SessionId);
+        if (options.Collaboration?.BindSession(SessionId) is { } replaced)
+            Emit(EventKind.Status, $"Codex started a new native thread; thread {replaced} did not resume. The phase continues with the new thread.");
         Emit(EventKind.Session, SessionId);
         Emit(EventKind.Status, "Connected to Codex");
     }
@@ -57,7 +59,7 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
     {
         activeToken = token;
         await ConnectAsync(token);
-        text.Clear(); completed.Clear(); streamedCharacters = 0;
+        lock (turnGate) { text.Clear(); completed.Clear(); streamedCharacters = 0; }
         turn = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancel = token.Register(() => turn.TrySetCanceled(token));
         await wire!.RequestAsync("turn/start", new
@@ -75,6 +77,10 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
         var p = message["params"];
         if (message["id"] is not null && method.Length > 0)
         { _ = HandleRequestAsync(message.DeepClone().AsObject()); return; }
+        lock (turnGate) HandleTurn(message, method, p);
+    }
+    private void HandleTurn(JsonObject message, string method, JsonNode? p)
+    {
         if (p?["threadId"] is { } threadId && SessionId is not null && threadId.ToString() != SessionId) return;
         if (method == "serverRequest/resolved") { requests.Cancel(p?["requestId"]?.ToJsonString() ?? ""); return; }
         if (method == "item/agentMessage/delta")
@@ -127,11 +133,13 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
             JsonNode result;
             if (method == "item/tool/requestUserInput")
             {
-                var answers = new JsonObject();
+                var answers = new JsonObject(); var declined = false;
                 foreach (var q in p?["questions"]?.AsArray() ?? [])
                 {
-                    var decision = RequestApproval is null ? new Decision(false) : await RequestApproval(
+                    // One decline ends the questionnaire, as it does for Claude; the remaining questions go unanswered.
+                    var decision = declined || RequestApproval is null ? new Decision(false) : await RequestApproval(
                         Approval.Question(Agent, q), requestToken);
+                    declined |= !decision.Allow;
                     answers[q.Str("id")] = Json.Obj(new { answers = decision.Allow ? new[] { decision.Answer } : Array.Empty<string>() });
                 }
                 result = new JsonObject { ["answers"] = answers };

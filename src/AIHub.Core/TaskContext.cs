@@ -81,6 +81,7 @@ public static class TaskContextBuilder
         omitted.AddRange(document.ContextRecords.Where(r => !selected.Contains(r.Id)).Select(r => r.Id));
         var omissions = omitted.Distinct().ToArray();
         body.AppendLine($"Additional or superseded records: {omissions.Length}. Retrieve by ID or search using get_context_records; omitted text was NOT supplied. No generated summary replaces original instructions.");
+        if (document.ArchivedRecords > 0) body.AppendLine($"Archived conversation records no longer retrievable here: {document.ArchivedRecords} (oldest first; the saved conversation and its export keep them).");
         var text = body.ToString();
         return new(document.ContextRevision, Fingerprint(text), text, included.ToArray(), omissions, Bytes(text), partial.ToArray());
     }
@@ -98,20 +99,46 @@ public sealed partial class CollaborationStore
                 throw new IOException("A saved context record ID was reused with different content. Original context was preserved.");
             return false;
         }
-        if (document.ContextRecords.Count >= 1024 || record.Text.Length > 128000 || record.Id.Length > 160)
+        if (document.ContextRecords.Count >= MaxRecords) ArchiveOldest(document);
+        if (document.ContextRecords.Count >= MaxRecords || record.Text.Length > 128000 || record.Id.Length > 160)
             throw new IOException("Task context storage is full or an entry is too large. Start a new task; saved context was preserved.");
         document.ContextRecords.Add(record);
         return true;
+    }
+    public const int MaxRecords = 1024;
+    /// <summary>
+    /// Keeps the record ledger open-ended for long conversations: at the cap, the oldest conversation record is archived,
+    /// agent replies before user messages. Pins, notes, run prompts and anything a pin supersedes are never archived. The
+    /// watermark keeps archived entries from being re-imported on the next turn; the saved conversation still has them.
+    /// </summary>
+    private static void ArchiveOldest(CollaborationDocument document)
+    {
+        var superseded = document.ContextRecords.Where(r => r.Supersedes is not null).Select(r => r.Supersedes!).ToHashSet();
+        var victim = document.ContextRecords.Where(r => r.Id.StartsWith("chat:", StringComparison.Ordinal) && !superseded.Contains(r.Id))
+            .OrderBy(r => r.Kind == "agent_message" ? 0 : 1).ThenBy(r => r.Created).FirstOrDefault();
+        if (victim is null) return;
+        document.ContextRecords.Remove(victim); document.ArchivedRecords++;
+        if (document.ArchivedThrough is null || victim.Created > document.ArchivedThrough) document.ArchivedThrough = victim.Created;
     }
     internal void SynchronizeContext(TaskClaim claim, IReadOnlyList<ConversationEntry> conversation, string currentPrompt)
     {
         // File I/O for large sources happens outside both state locks; commit rechecks the live claim.
         // Entries already imported with identical content are skipped before any hashing or file I/O.
-        var known = memory.WithClaim(claim, task => { lock (gate) return Load(task).ContextRecords.Where(r => r.Id.StartsWith("chat:", StringComparison.Ordinal)).ToDictionary(r => r.Id, r => r); });
+        var state = memory.WithClaim(claim, task =>
+        {
+            lock (gate)
+            {
+                var loaded = Load(task);
+                return (Known: loaded.ContextRecords.Where(r => r.Id.StartsWith("chat:", StringComparison.Ordinal)).ToDictionary(r => r.Id, r => r), loaded.ArchivedThrough);
+            }
+        });
+        var known = state.Known;
         bool Unchanged(ConversationEntry e) => known.TryGetValue("chat:" + e.Id, out var r) &&
             (!r.SourceStored ? r.Text == e.Text && !WouldExternalize(e.Speaker, e.Text) // An inline original that is now large still migrates to source storage.
                              : r.OriginalCharacters == e.Text.Length && r.OriginalHash == TaskContextBuilder.Fingerprint(e.Text));
-        var imports = conversation.Where(e => e.Route != "Task progress" && !Unchanged(e)).Select(e =>
+        // An entry older than the archive watermark that has no record was archived at the record cap; it is never re-imported.
+        bool Archived(ConversationEntry e) => state.ArchivedThrough is { } through && e.CreatedAt is { } created && created <= through && !known.ContainsKey("chat:" + e.Id);
+        var imports = conversation.Where(e => e.Route != "Task progress" && !Archived(e) && !Unchanged(e)).Select(e =>
             ImportRecord(claim.TaskId, "chat:" + e.Id, e.Speaker, e.Text, e.CreatedAt ?? DateTimeOffset.UtcNow)).ToList();
         if (!conversation.Any(e => e.Speaker == "You" && e.Text == currentPrompt))
             imports.Add(ImportRecord(claim.TaskId, "user-run:" + claim.Generation, "You", currentPrompt, DateTimeOffset.UtcNow));
@@ -247,7 +274,7 @@ public sealed partial class CollaborationStore
     }));
     private static void ValidateTaskContext(CollaborationDocument document, WorkTask task)
     {
-        if (document.ContextFormat != 1 || document.ContextRevision < 0 || document.ContextRecords is null || document.ContextRecords.Count > 1024 ||
+        if (document.ContextFormat != 1 || document.ContextRevision < 0 || document.ArchivedRecords < 0 || document.ContextRecords is null || document.ContextRecords.Count > MaxRecords ||
             document.ContextInputs is null || document.ContextInputs.Count > 128 || document.Assignments is null || document.Assignments.Count > 256)
             throw new IOException("Unsupported or oversized task context; existing data was preserved.");
         var ids = new HashSet<string>(); var activeUserIds = new HashSet<string>();

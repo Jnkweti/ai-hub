@@ -25,11 +25,6 @@ public sealed class CollaborationGuard(string userMessage)
         if (!history.TryGetValue(agent, out var replies)) history[agent] = replies = new();
         replies.Enqueue(reply); while (replies.Count > 4) replies.Dequeue();
     }
-    public string? InitialPauseReason()
-    {
-        if (IsSocialOnly(userMessage)) return "This was a greeting or acknowledgement, so one agent replied.";
-        return StatusPauseReason();
-    }
     public string? NextPauseReason(Agent agent, string reply, bool usedTools)
     {
         var repeated = !usedTools && history.TryGetValue(agent, out var replies) && replies.Any(previous => IsNearRepeat(previous, reply));

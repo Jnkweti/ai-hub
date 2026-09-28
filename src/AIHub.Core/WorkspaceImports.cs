@@ -18,11 +18,15 @@ public static class WorkspaceImports
         if (name.Length == 0 || !File.Exists(input)) throw new IOException("The selected file does not exist.");
         if (new DirectoryInfo(root).LinkTarget is not null) throw new IOException("Choose the actual project folder rather than a linked folder before importing.");
         await using var reader = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        if (string.Equals(Path.GetDirectoryName(input), root, StringComparison.OrdinalIgnoreCase))
+        var directory = Path.GetDirectoryName(input) ?? "";
+        if (string.Equals(directory, root, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
+            // Already inside the project, at the root or in a subfolder: reference it in place instead of copying it to the root.
             LocalStore.RejectLink(input);
+            for (var parent = directory; parent.Length > root.Length; parent = Path.GetDirectoryName(parent) ?? "")
+                if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0) throw new IOException("Choose a file under the actual project folder rather than a linked folder.");
             var hash = Convert.ToHexString(await SHA256.HashDataAsync(reader, token));
-            return new(name, input, reader.Length, hash, true);
+            return new(Path.GetRelativePath(root, input).Replace('\\', '/'), input, reader.Length, hash, true);
         }
         var stem = Path.GetFileNameWithoutExtension(name); var extension = Path.GetExtension(name);
         // CreateNew also protects against another importer racing this one.

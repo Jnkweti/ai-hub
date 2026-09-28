@@ -118,12 +118,13 @@ static class ProjectStatusTests
                 Check(f.Calls.Count == 1 && !File.Exists(f.ReportPath), "Invalid report was reviewed or cached");
             }
         });
-        await test("oversized file disables freshness reuse without concealing limitation", async () =>
+        await test("oversized file is fingerprinted by size and time and keeps freshness reuse", async () =>
         {
             using var f = new Fixture();
             using (var file = File.Create(Path.Combine(f.Workspace, "large.dat"))) file.SetLength(9 * 1024 * 1024);
-            var snapshot = await f.Snapshot(); Check(!snapshot.Reusable && snapshot.Limitation.Contains("size limit"), "Incomplete fingerprints declared fresh");
-            await f.Run(); Check(!File.Exists(f.ReportPath), "Incomplete snapshot cached");
+            var snapshot = await f.Snapshot();
+            Check(snapshot.Reusable && snapshot.Limitation.Length == 0 && snapshot.Files["large.dat"].StartsWith("stat:"), $"A large file made the fingerprint incomplete: '{snapshot.Limitation}'");
+            await f.Run(); Check(File.Exists(f.ReportPath), "Complete snapshot with a large asset was not cached");
         });
         await test("canceled uncooperative worker cannot save a delayed completion", async () =>
         {

@@ -8,7 +8,7 @@ namespace AIHub.Core;
 public sealed record ProjectSnapshot(string Fingerprint, string Revision, string Scope,
     bool Reusable, string Limitation, SortedDictionary<string, string> Files)
 {
-    private const int MaxFiles = 10000;
+    private const int MaxFiles = 10000, MaxEntries = 50000;
     private const long MaxFileBytes = 8 * 1024 * 1024, MaxTotalBytes = 128 * 1024 * 1024;
     private static readonly HashSet<string> Excluded = new(StringComparer.OrdinalIgnoreCase)
     { ".git", ".hg", ".svn", "bin", "obj", "node_modules", "artifacts", "dist", ".venv", "venv", "__pycache__", ".vs", ".idea", ".next", "coverage" };
@@ -39,13 +39,13 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
         }
         else paths = Walk(workspace, workspace, limitations, token);
 
-        long total = 0;
+        long total = 0; var hashed = 0;
         try
         {
             foreach (var relative in paths)
             {
                 token.ThrowIfCancellationRequested();
-                if (files.Count >= MaxFiles) { limitations.Add("File-count limit reached; freshness cannot be certified."); break; }
+                if (files.Count >= MaxEntries) { limitations.Add("File-count limit reached; freshness cannot be certified."); break; }
                 var clean = relative.Replace('\\', '/');
                 var full = Path.GetFullPath(Path.Combine(workspace, relative));
                 var prefix = Path.EndsInDirectorySeparator(workspace) ? workspace : workspace + Path.DirectorySeparatorChar;
@@ -55,12 +55,14 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
                 if (Directory.Exists(full)) { limitations.Add("Nested repositories or directories need a separate status check."); continue; }
                 if (!File.Exists(full)) { files[clean] = "missing"; continue; }
                 var info = new FileInfo(full);
-                if (info.Length > MaxFileBytes || total + info.Length > MaxTotalBytes)
-                { limitations.Add("Fingerprint size limit reached; freshness cannot be certified."); files[clean] = "unhashed"; continue; }
+                // Oversized files, and files beyond the hashing budget, are fingerprinted by size and last write time.
+                // That still detects change, so a large asset or a big tree no longer makes reviews impossible.
+                if (info.Length > MaxFileBytes || total + info.Length > MaxTotalBytes || hashed >= MaxFiles)
+                { files[clean] = $"stat:{info.Length}:{info.LastWriteTimeUtc.Ticks}"; continue; }
                 var beforeLength = info.Length; var beforeTime = info.LastWriteTimeUtc;
                 await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 files[clean] = Convert.ToHexString(await SHA256.HashDataAsync(stream, token));
-                total += beforeLength;
+                total += beforeLength; hashed++;
                 info.Refresh();
                 if (info.Length != beforeLength || info.LastWriteTimeUtc != beforeTime)
                     limitations.Add("Files changed while fingerprinting.");

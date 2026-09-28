@@ -200,8 +200,8 @@ internal static class CollaborationTests
             await using var rpc = await ProbeWire.Connect(host, f.DirectoryPath, timeout.Token);
             var response = await rpc.Call("tools/call", new JsonObject { ["name"] = "get_task_context", ["arguments"] = new JsonObject() }, timeout.Token);
             Check(response.Bool("isError") && f.Probe.ContextReads == 0, "Unbound session read task context");
-            host.BindSession("native-1");
-            try { host.BindSession("native-2"); throw new Exception("Session identity changed"); } catch (InvalidOperationException) { }
+            Check(host.BindSession("native-1") is null, "First binding reported a replaced session");
+            Check(host.BindSession("native-2") == "native-1" && host.BindSession("native-2") is null, "A re-keyed native session was not reported as replacing the earlier one");
             var context = await rpc.Tool("get_task_context", new JsonObject(), timeout.Token);
             Check(context.Str("task_id") == f.Claim.TaskId, "Valid connection failed after unauthorized attempt");
             var env = host.EnvironmentVariables();

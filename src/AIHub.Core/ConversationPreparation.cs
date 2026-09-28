@@ -36,8 +36,9 @@ internal sealed class ConversationPreparation : IAsyncDisposable
                 client.Event += e =>
                 {
                     // Adapter tool restrictions are the primary boundary. Never accept a draft if a provider
-                    // unexpectedly reports tool execution despite that configuration.
-                    if (e.Kind == EventKind.Tool) lifetime.Cancel();
+                    // unexpectedly reports tool execution despite that configuration. Real tool items carry a
+                    // native item id; plan updates and approval notices do not and are benign.
+                    if (e.Kind == EventKind.Tool && e.ItemId.Length > 0) lifetime.Cancel();
                     if (!lifetime.IsCancellationRequested && e.Kind is EventKind.Usage) emit(e);
                 };
                 emit(new(agent, EventKind.Status, "Preparing contribution"));

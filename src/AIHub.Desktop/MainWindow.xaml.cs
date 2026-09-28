@@ -19,8 +19,9 @@ namespace AIHub.Desktop;
 public partial class MainWindow : Window
 {
     private readonly LocalStore store = new(Environment.GetEnvironmentVariable("AIHUB_DATA_DIR"));
-    private ProjectStatusStore StatusStore => new(store.DirectoryPath);
+    private readonly ProjectStatusStore statusStore;
     private HubSettings settings;
+    private bool dirty; // Unsaved conversation state: streamed text, drafts, routing and pause changes between explicit saves.
     private readonly ObservableCollection<Room> rooms;
     private readonly ObservableCollection<MessageView> messages = [];
     private ActivityFeed activity = new();
@@ -49,9 +50,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         settings = store.Load("settings.json", () => new HubSettings { Workspace = FindProjectRoot() }, SavedStateRepair.Settings);
+        statusStore = new(store.DirectoryPath);
         rooms = new(store.Load("rooms.json", () => new List<Room>(), SavedStateRepair.Rooms));
         taskMemory = new(store);
-        collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true);
+        collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
         if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
         // Crash-class failures are recorded and flushed immediately; the failure itself is not suppressed.
@@ -75,8 +77,11 @@ public partial class MainWindow : Window
         var selected = rooms.FirstOrDefault(r => r.Id == settings.LastRoomId) ?? rooms.FirstOrDefault(r => !r.IsArchived) ?? rooms[0];
         RoomFilter.SelectedIndex = selected.IsArchived ? 1 : 0;
         ready = true; RoomList.SelectedItem = selected; AutoToggle.IsChecked = settings.AutoExchange;
-        saveTimer.Tick += (_, _) => { Save(); RefreshTaskSummary(); CheckRuntimeAudit(); }; saveTimer.Start(); Loaded += Window_Loaded;
+        saveTimer.Tick += (_, _) => { if (dirty) Save(); RefreshTaskSummary(); CheckRuntimeAudit(); }; saveTimer.Start(); Loaded += Window_Loaded;
         if (store.RecoveryNotices.Count > 0) StateLabel.Text = string.Join("\n", store.RecoveryNotices);
+        // Ledgers are recovered on first use; the startup pass runs in the background instead of blocking the window.
+        collaborationStore.RecoveryNotice += notice => Dispatcher.BeginInvoke(() => { audit.Record(AuditCode.RecoveryNotice); StateLabel.Text = notice; });
+        collaborationStore.BeginRecovery();
     }
     private static string FindProjectRoot()
     {
@@ -102,7 +107,7 @@ public partial class MainWindow : Window
     }
     private void Save()
     {
-        try { store.Save("settings.json", settings); store.Save("rooms.json", rooms.ToList()); }
+        try { store.Save("settings.json", settings); store.Save("rooms.json", rooms.ToList()); dirty = false; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { audit.Record(AuditCode.StorageError, current.Id, current.ActiveTaskId, exception: ex); StateLabel.Text = "Save failed: " + ex.Message; }
     }
     private void BuildHub()
@@ -235,6 +240,7 @@ public partial class MainWindow : Window
     private bool OwnsWorker(Room room, HubCoordinator owner) => workers.TryGetValue(room.Id, out var worker) && ReferenceEquals(worker.Hub, owner) && !room.IsArchived;
     private void HandleWorkerEvent(RoomWorker worker, AgentEvent item)
     {
+        dirty = true;
         if (item.Kind == EventKind.Status) worker.AgentStates[item.Agent] = item;
         if (ReferenceEquals(current, worker.Room) && ReferenceEquals(hub, worker.Hub)) { Handle(item); return; }
         if (item.Kind is EventKind.TextDelta or EventKind.Message)
@@ -247,7 +253,7 @@ public partial class MainWindow : Window
             }
             view.Text = item.Kind == EventKind.TextDelta ? view.Text + item.Text : item.Text;
             view.Saved.Complete = item.Kind == EventKind.Message;
-            if (item.Kind == EventKind.Message) Save();
+            if (item.Kind == EventKind.Message) { worker.Streaming.Remove(key); Save(); } // A finished message no longer needs its live view.
         }
         else if (item.Kind == EventKind.Session)
         { if (item.Agent == Agent.Codex) worker.Room.CodexSession = item.Text; else worker.Room.ClaudeSession = item.Text; Save(); }
@@ -260,6 +266,7 @@ public partial class MainWindow : Window
     }
     private void Handle(AgentEvent item)
     {
+        dirty = true;
         if (item.Kind is EventKind.TextDelta or EventKind.Message)
         {
             var key = item.Agent + "|" + item.ItemId;
@@ -273,22 +280,12 @@ public partial class MainWindow : Window
             ShowConversation();
             if (item.Kind == EventKind.TextDelta) SetAgentState(item.Agent, "Responding", true);
             if (followChat) Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ChatScroll.ScrollToEnd());
-            if (item.Kind == EventKind.Message) Save();
+            if (item.Kind == EventKind.Message) { streaming.Remove(key); Save(); } // A finished message no longer needs its live view.
             return;
         }
         if (item.Kind == EventKind.Session)
         { if (item.Agent == Agent.Codex) current.CodexSession = item.Text; else current.ClaudeSession = item.Text; Save(); return; }
-        if (item.Kind == EventKind.Status)
-        {
-            if (item.Text == "Working") SetAgentState(item.Agent, "Thinking", true);
-            else if (item.Text == "Listening") SetAgentState(item.Agent, "Listening", false);
-            else if (item.Text is "Preparing contribution" or "Prepared; waiting to speak") SetAgentState(item.Agent, item.Text, item.Text == "Preparing contribution");
-            else if (item.Text == "Standby") SetAgentState(item.Agent, "Standby", false);
-            else if (item.Text == "Ready") SetAgentState(item.Agent, "Ready", false);
-            else if (item.Text is "Gathering context" or "Context saved" or "Reviewed; nothing to add") SetAgentState(item.Agent, item.Text, item.Text == "Gathering context");
-            else if (item.Text is "Inspecting project" or "Reviewing findings" or "Waiting for inspection") SetAgentState(item.Agent, item.Text, item.Text != "Waiting for inspection");
-            else if (item.Text.StartsWith("Connected to ") && !(item.Agent == Agent.Codex ? codexWorking : claudeWorking)) SetAgentState(item.Agent, "Connected", false);
-        }
+        if (item.Kind == EventKind.Status) ReflectStatus(item);
         var action = activity.Record(item);
         if (item.Kind == EventKind.Tool && action is not null)
         {
@@ -300,6 +297,18 @@ public partial class MainWindow : Window
         RefreshActivity();
         if (item.Kind == EventKind.Error) { StateLabel.Text = item.Text; SetAgentState(item.Agent, "Needs attention", false); }
         try { store.AppendActivity(current.Id, item); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { StateLabel.Text = "Activity log: " + ex.Message; }
+    }
+    // Status to agent-card mapping, shared by live events and the replay when a room is reopened; the replay must not log again.
+    private void ReflectStatus(AgentEvent item)
+    {
+        if (item.Text == "Working") SetAgentState(item.Agent, "Thinking", true);
+        else if (item.Text == "Listening") SetAgentState(item.Agent, "Listening", false);
+        else if (item.Text is "Preparing contribution" or "Prepared; waiting to speak") SetAgentState(item.Agent, item.Text, item.Text == "Preparing contribution");
+        else if (item.Text == "Standby") SetAgentState(item.Agent, "Standby", false);
+        else if (item.Text == "Ready") SetAgentState(item.Agent, "Ready", false);
+        else if (item.Text is "Gathering context" or "Context saved" or "Reviewed; nothing to add") SetAgentState(item.Agent, item.Text, item.Text == "Gathering context");
+        else if (item.Text is "Inspecting project" or "Reviewing findings" or "Waiting for inspection") SetAgentState(item.Agent, item.Text, item.Text != "Waiting for inspection");
+        else if (item.Text.StartsWith("Connected to ") && !(item.Agent == Agent.Codex ? codexWorking : claudeWorking)) SetAgentState(item.Agent, "Connected", false);
     }
     private void AddActivity(string agent, string title, string detail)
     {
@@ -339,7 +348,10 @@ public partial class MainWindow : Window
         if (explicitPrompt is null) Composer.Clear();
         try
         {
-            if (hub!.TryGetProgress(prompt, out var progress))
+            // The progress answer reads the task ledger, so it runs off the UI thread.
+            var owner = hub!;
+            var (hasProgress, progress) = await Task.Run(() => { var found = owner.TryGetProgress(prompt, out var report); return (found, report); });
+            if (hasProgress)
             {
                 var progressQuestion = new SavedMessage { Text = prompt, Route = "Task progress", TaskId = current.ActiveTaskId };
                 var answer = new SavedMessage { Speaker = "AI Hub", Text = progress, Route = "Task progress", TaskId = current.ActiveTaskId };
@@ -369,7 +381,7 @@ public partial class MainWindow : Window
                 var codexOptions = new AgentOptions(workspace, false, settings.CodexModel, settings.CodexPath);
                 var claudeOptions = new AgentOptions(workspace, false, settings.ClaudeModel, settings.ClaudePath);
                 var config = JsonSerializer.Serialize(new { settings.CodexModel, settings.ClaudeModel, settings.CodexPath, settings.ClaudePath });
-                await hub.SubmitProjectStatusAsync(new(workspace, current.Id, target, settings.StatusInspector, config, refreshStatus), StatusStore,
+                await hub.SubmitProjectStatusAsync(new(workspace, current.Id, target, settings.StatusInspector, config, refreshStatus), statusStore,
                     agent => agent == Agent.Codex ? new CodexClient(codexOptions) : new ClaudeClient(claudeOptions));
             }
             else
@@ -403,7 +415,7 @@ public partial class MainWindow : Window
         {
             await DisposeCurrentHubAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await StatusStore.ForgetAsync(current.Workspace, null, timeout.Token);
+            await statusStore.ForgetAsync(current.Workspace, null, timeout.Token);
             StateLabel.Text = "Saved project status cleared · existing conversation messages are kept";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
@@ -499,7 +511,7 @@ public partial class MainWindow : Window
         if (workers.TryGetValue(current.Id, out var worker))
         {
             if (worker.State != "Ready") UpdateState(worker.State);
-            foreach (var state in worker.AgentStates.Values) Handle(state);
+            foreach (var state in worker.AgentStates.Values) ReflectStatus(state); // Into the view only: the feed and log already have these.
         }
         var question = pendingInputs.Values.FirstOrDefault(p => ReferenceEquals(p.Room, current) && p.View.IsQuestion);
         if (question is not null) ActivateQuestion(question.View); else RefreshInputComposer();
@@ -677,7 +689,7 @@ public partial class MainWindow : Window
         if (ready && !loadingComposer)
         {
             if (activeQuestion is { } question) question.SetAnswerText(Composer.Text);
-            else current.Draft = Composer.Text;
+            else { current.Draft = Composer.Text; dirty = true; }
         }
         UpdateSendButton();
     }
@@ -703,10 +715,10 @@ public partial class MainWindow : Window
         RefreshInputComposer();
     }
     private void Target_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    { if (ready && !loadingComposer) current.Target = Target.SelectedIndex == 1 ? "Codex" : Target.SelectedIndex == 2 ? "Claude" : "Both"; }
+    { if (ready && !loadingComposer) { current.Target = Target.SelectedIndex == 1 ? "Codex" : Target.SelectedIndex == 2 ? "Claude" : "Both"; dirty = true; } }
     private void SetPause(string reason)
     {
-        current.PauseReason = reason; PauseReasonLabel.Text = reason;
+        current.PauseReason = reason; PauseReasonLabel.Text = reason; dirty = true;
         if (reason.Length > 0 && !current.IsArchived) { RoundLabel.Text = "Paused"; HandoffSignal.Stop(); }
         PauseBanner.Visibility = reason.Length > 0 && !current.IsArchived ? Visibility.Visible : Visibility.Collapsed;
         var resumable = current.LastTask.Length > 0 && (reason.Contains("round", StringComparison.OrdinalIgnoreCase) || reason.Contains("repeated", StringComparison.OrdinalIgnoreCase) || reason.StartsWith("You stopped") || reason.StartsWith("Instructions changed") || reason.Contains("Task context storage"));
@@ -772,7 +784,7 @@ public partial class MainWindow : Window
         {
             await DisposeCurrentHubAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await StatusStore.ForgetAsync(room.Workspace, room.Id, timeout.Token);
+            await statusStore.ForgetAsync(room.Workspace, room.Id, timeout.Token);
             collaborationStore.DeleteRoom(room.Id, () => store.DeleteRoom(rooms.ToList(), room.Id));
             rooms.Remove(room);
             SelectActiveRoom(); Save();
