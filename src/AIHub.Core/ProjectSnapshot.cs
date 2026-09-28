@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace AIHub.Core;
 
@@ -12,11 +14,37 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
     private const long MaxFileBytes = 8 * 1024 * 1024, MaxTotalBytes = 128 * 1024 * 1024;
     private static readonly HashSet<string> Excluded = new(StringComparer.OrdinalIgnoreCase)
     { ".git", ".hg", ".svn", "bin", "obj", "node_modules", "artifacts", "dist", ".venv", "venv", "__pycache__", ".vs", ".idea", ".next", "coverage" };
+    // A content hash is reused for a file whose length, last write time and NTFS change time are unchanged since an earlier
+    // capture of the same workspace, so a capture costs one listing and a stat per file instead of rehashing the tree.
+    // The change time is set by the file system on every content or timestamp change and cannot be set back, so a
+    // same-size edit with a restored modification time is still rehashed. The fingerprint is the same whether a hash was
+    // reused or recomputed. Each capture publishes a fresh map; the maps are never mutated.
+    private sealed record KnownHash(long Length, long Ticks, long ChangeTicks, string Hash);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, KnownHash>> Known = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxKnownWorkspaces = 8;
+    internal static long FilesHashed; // Files whose content was actually read; test observability.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileBasicInfo { public long CreationTime, LastAccessTime, LastWriteTime, ChangeTime; public uint FileAttributes; }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int infoClass, out FileBasicInfo info, uint size);
+    /// <summary>The file system's change time, or -1 when it cannot be read (the file is then hashed rather than trusted).</summary>
+    private static long ChangeTicks(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return -1;
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return GetFileInformationByHandleEx(handle, 0, out var info, (uint)Marshal.SizeOf<FileBasicInfo>()) ? info.ChangeTime : -1;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return -1; }
+    }
 
     public static async Task<ProjectSnapshot> CaptureAsync(string workspace, CancellationToken token)
     {
         workspace = ProjectStatusStore.NormalizeWorkspace(workspace);
         if (!Directory.Exists(workspace)) throw new DirectoryNotFoundException("The selected project folder no longer exists.");
+        var known = Known.GetValueOrDefault(workspace) ?? new Dictionary<string, KnownHash>(StringComparer.Ordinal);
+        var refreshed = new Dictionary<string, KnownHash>(StringComparer.Ordinal);
         var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
         var limitations = new HashSet<string>();
         var gitList = await GitAsync(workspace, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "."], token);
@@ -60,16 +88,25 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
                 if (info.Length > MaxFileBytes || total + info.Length > MaxTotalBytes || hashed >= MaxFiles)
                 { files[clean] = $"stat:{info.Length}:{info.LastWriteTimeUtc.Ticks}"; continue; }
                 var beforeLength = info.Length; var beforeTime = info.LastWriteTimeUtc;
-                await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                files[clean] = Convert.ToHexString(await SHA256.HashDataAsync(stream, token));
-                total += beforeLength; hashed++;
+                var changeTicks = ChangeTicks(full);
+                if (known.TryGetValue(clean, out var cached) && cached.Length == beforeLength && cached.Ticks == beforeTime.Ticks && changeTicks >= 0 && cached.ChangeTicks == changeTicks)
+                { files[clean] = cached.Hash; refreshed[clean] = cached; total += beforeLength; hashed++; continue; }
+                string hash;
+                await using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                    hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, token));
+                Interlocked.Increment(ref FilesHashed);
+                files[clean] = hash; total += beforeLength; hashed++;
                 info.Refresh();
-                if (info.Length != beforeLength || info.LastWriteTimeUtc != beforeTime)
-                    limitations.Add("Files changed while fingerprinting.");
+                if (info.Length != beforeLength || info.LastWriteTimeUtc != beforeTime || changeTicks < 0 || ChangeTicks(full) != changeTicks)
+                    { if (info.Length != beforeLength || info.LastWriteTimeUtc != beforeTime) limitations.Add("Files changed while fingerprinting."); }
+                else refreshed[clean] = new(beforeLength, beforeTime.Ticks, changeTicks, hash); // Only a stable read is worth remembering.
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { limitations.Add("Some files could not be fingerprinted: " + ex.Message); }
+        if (Known.Count >= MaxKnownWorkspaces && !Known.ContainsKey(workspace))
+            foreach (var key in Known.Keys.Take(Known.Count - MaxKnownWorkspaces + 1)) Known.TryRemove(key, out _);
+        Known[workspace] = refreshed;
         var manifest = revision + "\n" + scope + "\n" + index + "\n" + string.Join('\n', files.Select(f => f.Key + "\0" + f.Value));
         return new(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifest))), revision, scope,
             limitations.Count == 0, string.Join(" ", limitations), files);

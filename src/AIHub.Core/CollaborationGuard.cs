@@ -9,8 +9,14 @@ public sealed class CollaborationGuard(string userMessage)
     private readonly Dictionary<Agent, Queue<string>> history = [];
     private readonly Dictionary<Agent, string> latest = [];
     private static readonly Regex Words = new(@"[\p{L}\p{N}]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // Greetings, thanks and acknowledgements, in the casual forms people actually type. Words that can answer a question
+    // ("yes", "no", "sure", "go ahead") are deliberately absent: those carry instructions.
     private static readonly Regex SocialOnly = new(
-        @"^(?:(?:hi|hello|hey|hiya|howdy|greetings|good morning|good afternoon|good evening)(?: (?:there|everyone|both|you two|guys|team|codex|claude|astra|ai hub))?|how are (?:you|you both|you two)|what s up|thanks(?: you)?(?: both| everyone| a lot| so much)?|thank you(?: both| everyone| so much)?|ok(?:ay)?|cool|great|awesome|sounds good|got it|nice|goodbye|bye|see you|\p{So}+)$",
+        @"^(?:(?:hi|hello|hey|hiya|howdy|yo+|sup|wassup|greetings|good morning|good afternoon|good evening|good night|morning|evening|gm|gn)(?: (?:there|everyone|both|you two|guys|team|all|folks|friends|agents|codex|claude|astra|ai hub))?" +
+        @"|(?:hey |hi |yo )?(?:what s up|whats up|wassup|how s it going|how is it going|how are things)|how are (?:you|you both|you two)(?: doing)?" +
+        @"|thanks(?: you)?(?: both| everyone| guys| a lot| so much)?|thank you(?: both| everyone| guys| so much)?|thank u|thx|ty|cheers" +
+        @"|ok(?:ay)?(?: thanks| thank you| cool| great)?|cool|great|awesome|sounds good|got it|nice|nice one|nice work|good job|great job|well done|perfect|love it|excellent" +
+        @"|lol|haha+|lmao|goodbye|bye|see you|night|\p{So}+)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // Whole-message matching preserves requests such as "Hello, review my project".

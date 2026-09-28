@@ -357,7 +357,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 promptReference = CollaborationStore.PromptReference(claim, prompt);
                 CollaborationStore.AppendEvent(claim, "system", "AI Hub", $"Phase started for {target}; {ConversationTurns.Name(next)} speaks first.");
                 initialCommon = await Task.Run(() => CollaborationStore.BuildCommon(claim, token), token);
-                if (participants.Length == 2 && PreparationFactory is not null)
+                // A greeting or acknowledgement gets one quick reply; preparing the other agent for it would be a wasted model turn.
+                if (participants.Length == 2 && PreparationFactory is not null && CollaborationScheduler.NeedsOptionalPeer(prompt))
                     preparation = new(CollaborationStore, claim, ConversationTurns.Other(next), initialCommon, promptReference, PreparationFactory,
                         item => { if (Current()) Event?.Invoke(item); }, token);
                 Agent? previousAgent = null; var visible = ""; var turns = 0;
@@ -366,6 +367,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 var visibleReplies = new List<string>();
                 var phaseSessions = new HashSet<Agent>();
                 var counts = participants.ToDictionary(p => p, _ => (Contributions: 0, Passes: 0));
+                // A participant whose provider said "not now" (usage limit, rate limit, credits) sits out the rest of the phase.
+                var unavailable = new HashSet<Agent>(); var unavailableReason = "";
                 // Reaction rounds: every participant gets an opportunity to react to each new contribution or user message.
                 // The host orders the opportunities and enforces budgets; whether to speak is the participant's decision.
                 var opportunities = new LinkedList<(Agent Agent, string? IncomingId)>();
@@ -373,6 +376,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 foreach (var peer in participants.Where(p => p != next)) opportunities.AddLast((peer, (string?)null));
                 void Offer(Agent agent, bool front = false)
                 {
+                    if (unavailable.Contains(agent)) return;
                     for (var node = opportunities.First; node is not null; node = node.Next)
                         if (node.Value.Agent == agent && node.Value.IncomingId is null) return;
                     if (front) opportunities.AddFirst((agent, (string?)null)); else opportunities.AddLast((agent, (string?)null));
@@ -393,7 +397,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     }
                     if (aside) { CollaborationStore.SynchronizeContext(claim, await Snapshot(), prompt); State?.Invoke("Your message joined the live stream"); }
                     if (opportunities.Count == 0)
-                    { outcomeReason = "Every participant passed on the newest events. Their reports are not host certification of task completion."; break; }
+                    {
+                        outcomeReason = unavailable.Count > 0
+                            ? $"{ConversationTurns.Name(participants.First(p => !unavailable.Contains(p)))} finished; {ConversationTurns.Name(unavailable.First())} was unavailable: {unavailableReason}"
+                            : "Every participant passed on the newest events. Their reports are not host certification of task completion.";
+                        break;
+                    }
                     var slot = opportunities.First!.Value; opportunities.RemoveFirst();
                     next = slot.Agent; var incomingId = slot.IncomingId;
                     prepared = null;
@@ -413,7 +422,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         dispatch.Incoming?.Content.Scope ?? new([], []), "Publish one terminal contribution or a quiet pass; claims are not host certification.", claim.Generation, "running", DateTimeOffset.UtcNow));
                     currentDispatch = new(runEpoch, dispatch);
                     var checkContribution = previousAgent is not null && incomingId is null;
-                    CollaborationMessage terminal;
+                    CollaborationMessage? terminal = null;
                     AgentReply? turnReply = null;
                     try
                     {
@@ -440,6 +449,13 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                             }
                         }
                     }
+                    catch (IOException ex) when (participants.Length == 2 && unavailable.Count == 0 && ProviderLimits.IsExhausted(ex.Message))
+                    {
+                        // The provider said "not now": this participant sits out the rest of the phase and the other one continues,
+                        // instead of the whole run failing. A second unavailable provider still ends the run below.
+                        CollaborationStore.FinishAssignment(claim, dispatch.Id, "failed");
+                        unavailable.Add(next); unavailableReason = ex.Message.Length > 300 ? ex.Message[..300] : ex.Message;
+                    }
                     catch
                     {
                         CollaborationStore.FinishAssignment(claim, dispatch.Id, token.IsCancellationRequested ? "interrupted" : "failed");
@@ -459,6 +475,18 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         }
                     }
                     token.ThrowIfCancellationRequested();
+                    if (terminal is null)
+                    {
+                        // Sidelined participant: withdraw every opportunity it held, tell the user and the stream, and carry on.
+                        for (var node = opportunities.First; node is not null;)
+                        { var following = node.Next; if (node.Value.Agent == next) opportunities.Remove(node); node = following; }
+                        var other = ConversationTurns.Other(next);
+                        CollaborationStore.AppendEvent(claim, "system", "AI Hub", $"{ConversationTurns.Name(next)} is unavailable for the rest of this phase ({unavailableReason}). {ConversationTurns.Name(other)} continues alone.");
+                        Event?.Invoke(new(next, EventKind.Error, $"{ConversationTurns.Name(next)} is unavailable for this phase: {unavailableReason} {ConversationTurns.Name(other)} continues."));
+                        if (!contributed.Contains(other)) Offer(other);
+                        if (opportunities.Count > 0) State?.Invoke("Continuing with " + ConversationTurns.Name(other) + " · " + ConversationTurns.Name(next) + " unavailable");
+                        continue;
+                    }
                     CollaborationStore.FinishAssignment(claim, dispatch.Id, terminal.Content.Status == "blocked" ? "blocked" : "completed");
                     var repeated = checkContribution && visibleReplies.Any(prior => CollaborationScheduler.Duplicate(turnReply!.Text, prior) ||
                         prior.Length <= 16000 && turnReply!.Text.Length <= 16000 && CollaborationGuard.IsNearRepeat(prior, turnReply.Text));
@@ -502,7 +530,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     if (CollaborationGuard.IsWaiting(turnReply!.Text))
                     { await PauseAsync("Waiting for your input before further contributions."); return; }
                     previousAgent = next; visible = turnReply.Text;
-                    if (terminal.Envelope.Recipient is { } recipient)
+                    if (terminal.Envelope.Recipient is { } absent && unavailable.Contains(absent))
+                        Event?.Invoke(new(next, EventKind.Status, $"{ConversationTurns.Name(absent)} is unavailable, so the request to it was not delivered; ask again when it is available."));
+                    else if (terminal.Envelope.Recipient is { } recipient)
                     {
                         // An explicit peer request is intent: the recipient's opportunity comes first and carries the request.
                         if (!AutoExchange && contributed.Contains(recipient))
@@ -528,7 +558,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     ExchangeCount = Math.Max(0, turns / 2);
                     if (opportunities.Count > 0) State?.Invoke("Inviting " + ConversationTurns.Name(opportunities.First!.Value.Agent) + " to contribute");
                 }
-                if (participants.Length == 2 && counts.Values.Any(c => c.Contributions >= 3) && counts.Values.Any(c => c.Contributions == 0))
+                if (participants.Length == 2 && unavailable.Count == 0 && counts.Values.Any(c => c.Contributions >= 3) && counts.Values.Any(c => c.Contributions == 0))
                     Diagnostic?.Invoke(AuditCode.StreamImbalance, null); // One participant crowded the phase while the other never contributed.
                 return;
             }

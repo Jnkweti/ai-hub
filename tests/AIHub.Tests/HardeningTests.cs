@@ -169,6 +169,59 @@ internal static class HardeningTests
             var answers = JsonNode.Parse(reply.Text)!["answers"]!;
             Check(asked == 1 && answers["layout"]!["answers"]!.AsArray().Count == 0 && answers["notes"]!["answers"]!.AsArray().Count == 0, $"Codex kept asking after a decline: asked {asked}");
         });
+        // 0.17.0: responsiveness.
+        await test("workspace fingerprints reuse content hashes for unchanged files and rehash only what changed", async () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "ah-inc-" + Guid.NewGuid().ToString("N")[..8]); Directory.CreateDirectory(root);
+            try
+            {
+                for (var i = 0; i < 5; i++) File.WriteAllText(Path.Combine(root, $"file{i}.txt"), "content " + i);
+                var before = Interlocked.Read(ref ProjectSnapshot.FilesHashed);
+                var cold = await ProjectSnapshot.CaptureAsync(root, default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 5, "Cold capture did not hash every file");
+                var warm = await ProjectSnapshot.CaptureAsync(root, default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 5 && warm.Fingerprint == cold.Fingerprint && warm.Reusable, "Warm capture rehashed unchanged files or changed the fingerprint");
+                await Task.Delay(20); File.AppendAllText(Path.Combine(root, "file2.txt"), " changed");
+                var changed = await ProjectSnapshot.CaptureAsync(root, default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 6 && changed.Fingerprint != cold.Fingerprint, "A changed file was not rehashed or not detected");
+            }
+            finally { Directory.Delete(root, true); }
+        });
+        await test("a provider over its usage limit sits out the phase and the other agent still answers", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var errors = new List<string>();
+            await using var hub = f.Hub((agent, host, _, _, _) =>
+            {
+                if (agent == Agent.Codex) throw new IOException("You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 3rd, 2026 11:21 PM.");
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Claude answers alone.");
+            });
+            hub.Event += e => { if (e.Kind == EventKind.Error) lock (errors) errors.Add(e.Text); };
+            await hub.SubmitAsync("Discuss our options", "Both"); await f.Finished();
+            var task = f.Memory.Get(f.TaskId)!; var doc = f.Store.Read(f.TaskId);
+            Check(task.State == WorkState.Ready, $"Run did not finish with the available agent: {task.State} {task.Reason}");
+            Check(f.Speakers.SequenceEqual([Agent.Codex, Agent.Claude]) && doc.Entries.Count(e => e.SenderSucceeded) == 1, "Claude did not get its turn after Codex was unavailable");
+            Check(errors.Any(t => t.Contains("unavailable for this phase")) && doc.Events.Any(e => e.Kind == "system" && e.Text.Contains("unavailable")), "The user and the stream were not told");
+            Check(task.Reason.Contains("unavailable"), "Outcome did not record the unavailable provider: " + task.Reason);
+        });
+        await test("both providers over their limits still pause the run for the user", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            await using var hub = f.Hub((_, _, _, _, _) => throw new IOException("You've hit your usage limit."));
+            await hub.SubmitAsync("Discuss our options", "Both"); await f.Finished();
+            Check(f.Memory.Get(f.TaskId)!.State == WorkState.Failed && f.Calls == 2, "A second unavailable provider was not reported as a failure");
+        });
+        await test("casual greetings and acknowledgements get one quick reply without a preparation session", async () =>
+        {
+            foreach (var social in new[] { "yooo", "yo", "Yo!", "sup", "what's up?", "hey guys", "good night", "gm", "haha", "lol", "thx", "nice work", "ok thanks" })
+                Check(CollaborationGuard.IsSocialOnly(social), $"Not recognised as social: {social}");
+            foreach (var real in new[] { "yes", "no", "sure", "go ahead", "Hello, review my project", "what's up with the build?", "ok now run the tests" })
+                Check(!CollaborationGuard.IsSocialOnly(real), $"Instruction mistaken for small talk: {real}");
+            using var f = new CollaborationRoutingTests.Fixture(); var prepared = false;
+            await using var hub = f.Hub((_, host, _, _, _) => { CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Hey! Ready when you are."); });
+            hub.PreparationFactory = agent => { prepared = true; return new ScriptedAgent(agent, [], "notes"); };
+            await hub.SubmitAsync("yooo", "Both"); await f.Finished();
+            Check(f.Calls == 1 && !prepared && f.Memory.Get(f.TaskId)!.State == WorkState.Ready, $"A greeting ran the full pipeline: calls={f.Calls} prepared={prepared}");
+        });
     }
 }
 
