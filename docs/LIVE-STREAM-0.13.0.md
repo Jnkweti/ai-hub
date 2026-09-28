@@ -81,4 +81,9 @@ turn-taking and the user as a peer, follow in later releases.
 - Clean checkout of commit `5a7c4a7` cloned to a short temp path: Release build with zero warnings and zero
   errors; **203 tests passed** in 64 seconds (`artifacts\live-stream-013-clean-build.txt`,
   `artifacts\live-stream-013-clean-tests.txt`).
-- Installation: PENDING the user's approval. The installed app remains 0.12.0.
+- Installed **0.13.0.0** on September 28, 2026 after the user closed the idle app (no running or owned
+  tasks). All **611** package files matched the candidate and all **nine** production profile files were
+  unchanged. Backups: `artifacts\before-collaboration-20260928-143822.zip` and
+  `artifacts\before-collaboration-data-20260928-143822.zip`. Reopened the normal profile as 0.13.0.0 with
+  zero running tasks and zero child processes. Evidence: `artifacts\live-stream-013-install-result.json`
+  and `artifacts\live-stream-013-reopen-result.json`.

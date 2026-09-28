@@ -12,4 +12,4 @@ Scope: migration step 1 of the target design. Items are checked only with record
 - [x] Package built and desktop smoke checks passed.
 - [x] Live provider check: both CLIs complete a second turn on the resident session with the bridge attached to a new dispatch (`artifacts\live-stream-013-native-routing-final`).
 - [x] Documentation and version updated.
-- [ ] Installed with the user's approval.
+- [x] Installed with the user's approval on September 28, 2026; reopened idle.
