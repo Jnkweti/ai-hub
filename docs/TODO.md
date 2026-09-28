@@ -26,16 +26,16 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
   markdown packet (scope, evidence, findings, freshness, decisions, undelivered requests) from the ledger; offer it
   from the Tasks window and the Export button. `CollaborationPresentation`. S.
 
-## Batch 2 — addressing and handles (target: 0.19.0)
+## Batch 2 — addressing and handles (shipped as 0.19.0, see `PEER-FEATURES-0.19.0.md`)
 
-- [ ] **@mention addressing** (from OpenAgents Workspace). Accept `@claude` and `@codex` anywhere in a message; two
+- [x] **@mention addressing** (from OpenAgents Workspace). Accept `@claude` and `@codex` anywhere in a message; two
   mentions with different asks become a split with two assignments. `ConversationTurns.AddressedSpeaker`,
   `CollaborationScheduler`. S to M.
-- [ ] **Resume handles** (from the official Codex plugin's `/codex:transfer`). Show each resident session's id and the
+- [x] **Resume handles** (from the official Codex plugin's `/codex:transfer`). Show each resident session's id and the
   exact resume command in the Tasks window so the same thread can be opened in the Codex or Claude TUI. S.
-- [ ] **Adversarial review preset** (from `/codex:adversarial-review`). A workflow instruction that steers a review to
+- [x] **Adversarial review preset** (from `/codex:adversarial-review`). A workflow instruction that steers a review to
   challenge assumptions, selectable per review request. `plugins/ai-hub-collaboration`. S.
-- [ ] **Per-phase usage totals**. Sum the Usage events per provider per phase and show them in the Tasks window. S.
+- [x] **Per-phase usage totals**. Sum the Usage events per provider per phase and show them in the Tasks window. S.
 
 ## Batch 3 — bigger changes, one release each
 

@@ -166,7 +166,17 @@ public partial class MainWindow
                 string.Join("\n\n", task.LatestReplies.Select(p => p.Key + ": " + p.Value));
             if (task is not null)
             {
-                try { details.Text += CollaborationPresentation.History(collaborationStore.Read(task.Id), includeOutput: false); }
+                // Resume handles: the same native threads can be reopened in each CLI.
+                var room = rooms.FirstOrDefault(r => r.Id == task.RoomId);
+                details.Text += "\n\nNative sessions (reopen the same thread in the CLI):\n" +
+                    (room?.CodexSession is { Length: > 0 } codexThread ? $"Codex thread {codexThread}\n  codex resume {codexThread}\n" : "Codex: no thread yet\n") +
+                    (room?.ClaudeSession is { Length: > 0 } claudeSession ? $"Claude session {claudeSession}\n  claude --resume {claudeSession}\n" : "Claude Code: no session yet\n");
+                try
+                {
+                    var ledger = collaborationStore.Read(task.Id);
+                    details.Text += "\nProvider usage:\n" + CollaborationPresentation.UsageSummary(ledger, task.Generation);
+                    details.Text += CollaborationPresentation.History(ledger, includeOutput: false);
+                }
                 catch (IOException ex) { details.Text += "\nCollaboration history unavailable: " + ex.Message; }
             }
         }

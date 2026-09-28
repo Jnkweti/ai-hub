@@ -38,6 +38,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     private Task? running;
     private volatile int epoch;
     private readonly ConcurrentDictionary<Agent, int> toolEvents = new();
+    // Provider usage reports, drained on the run thread after each turn and recorded per phase in the ledger.
+    private readonly ConcurrentQueue<(Agent Agent, string? Session, string Detail)> usageEvents = new();
+    private readonly Dictionary<(Agent Agent, string? Session), ProviderUsage.Sample> usageSeen = [];
     // Written by the run thread after each turn and by the UI when a room is opened.
     private readonly Dictionary<Agent, ConversationCursor> contextCursors = [];
     private readonly object cursorGate = new();
@@ -117,6 +120,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     lock (clientGate) if (!clients.TryGetValue(agent, out var current) || current != client) return;
                     Volatile.Write(ref lastActivity, Environment.TickCount64);
                     if (e.Kind == EventKind.Tool && e.ItemId.Length > 0) toolEvents.AddOrUpdate(agent, 1, (_, count) => count + 1);
+                    if (e.Kind == EventKind.Usage && collaboration is not null) usageEvents.Enqueue((agent, client.SessionId, e.Detail));
                     if (collaboration is not null && currentDispatch is { } live && live.Epoch == clientEpoch)
                         live.Dispatch.Enqueue(e, notice => Event?.Invoke(new(agent, EventKind.Status, notice)),
                             error => Event?.Invoke(new(agent, EventKind.Error, "Native evidence was not saved: " + error)));
@@ -136,6 +140,30 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
             }
             return client;
         }
+    }
+    // Codex reports cumulative per-thread totals and Claude a cumulative session cost, so deltas against the last report
+    // of the same session are what a turn actually used.
+    private void FlushUsage(TaskClaim claim)
+    {
+        var totals = new Dictionary<Agent, (long Input, long Cached, long Output, decimal Cost)>();
+        while (usageEvents.TryDequeue(out var item))
+        {
+            if (!ProviderUsage.TryParse(item.Agent, item.Detail, out var sample)) continue;
+            var key = (item.Agent, item.Session);
+            var seen = usageSeen.GetValueOrDefault(key);
+            var input = sample.TokensCumulative ? Math.Max(0, sample.Input - seen.Input) : sample.Input;
+            var cached = sample.TokensCumulative ? Math.Max(0, sample.Cached - seen.Cached) : sample.Cached;
+            var output = sample.TokensCumulative ? Math.Max(0, sample.Output - seen.Output) : sample.Output;
+            var cost = sample.CostCumulative ? Math.Max(0, sample.Cost - seen.Cost) : sample.Cost;
+            if (sample.TokensCumulative && sample.Input < seen.Input) { input = sample.Input; cached = sample.Cached; output = sample.Output; } // A new thread restarted the totals.
+            if (sample.CostCumulative && sample.Cost < seen.Cost) cost = sample.Cost;
+            usageSeen[key] = sample;
+            var sum = totals.GetValueOrDefault(item.Agent);
+            totals[item.Agent] = (sum.Input + input, sum.Cached + cached, sum.Output + output, sum.Cost + cost);
+        }
+        foreach (var (agent, t) in totals)
+            try { CollaborationStore!.RecordUsage(claim, agent, t.Input, t.Cached, t.Output, t.Cost); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Event?.Invoke(new(agent, EventKind.Status, "Usage was not recorded: " + ex.Message)); }
     }
     private async Task ReleaseStructuredClientAsync(Agent agent)
     {
@@ -217,6 +245,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
         CommonContext? initialCommon = null;
         PreparedContribution? prepared = null;
         var promptReference = prompt;
+        // "@claude do X, @codex do Y": each participant's own part of the user's message.
+        Dictionary<Agent, string>? asks = null;
         // Resident sessions: one pipe host and one provider process per agent for the whole phase.
         var hosts = new Dictionary<Agent, CollaborationMcpHost>();
         var spoke = new HashSet<Agent>();
@@ -276,7 +306,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
             {
                 CollaborationStore!.SynchronizeContext(claim!, snapshot, prompt);
                 var assignment = "YOUR ASSIGNMENT: " +
-                    (dispatch.Incoming?.Content.RequestedAction ?? (previous is null ? "Respond to the user's task using shared findings." : "Check whether there is a substantive addition. Avoid a second standalone answer.")) +
+                    (dispatch.Incoming?.Content.RequestedAction ??
+                     (asks is not null && !followUp && asks.TryGetValue(speaker, out var ask) ? "The user addressed you directly with this part of the message: " + ask + " Your teammate has its own part; do not do theirs." :
+                      previous is null ? "Respond to the user's task using shared findings." : "Check whether there is a substantive addition. Avoid a second standalone answer.")) +
                     "\nRespond only as " + ConversationTurns.Name(speaker) + ".";
                 if (spoke.Contains(speaker) && client.SessionId is not null && !refreshContext)
                 {
@@ -365,6 +397,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     .GroupBy(e => e.Message.Envelope.Generation).OrderByDescending(g => g.Key).FirstOrDefault();
                 var previousLead = previousRun?.OrderBy(e => e.Message.Envelope.Sequence).First().Message.Envelope.Sender;
                 var next = participants.Length == 1 ? participants[0] : ConversationTurns.AddressedSpeaker(prompt) ?? preferredSpeaker ?? CollaborationScheduler.First(prompt, previousLead, first);
+                asks = participants.Length == 2 ? ConversationTurns.SplitAsks(prompt) : null;
                 // A participant whose provider said "not now" (usage limit, rate limit, credits) sits out the rest of the phase.
                 // One already known to be over its limit is not dispatched to at all.
                 var unavailable = new HashSet<Agent>(); var unavailableReason = "";
@@ -467,6 +500,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         {
                             turnReply = await Speak(next, previousAgent, visible, turns == 0, dispatch, host, repair, followUp, synthesis);
                             await dispatch.DrainAsync(); // Evidence from this turn is recorded before its terminal message is validated.
+                            FlushUsage(claim);
                             if (host.LimitReached) { await PauseAsync("Structured tool validation limit reached. Review the task before continuing."); return; }
                             try { terminal = dispatch.Complete(); break; }
                             catch (CollaborationValidationException ex)
@@ -493,6 +527,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     finally
                     {
                         try { await dispatch.DrainAsync(); } catch (Exception) { }
+                        try { FlushUsage(claim); } catch (Exception) { }
                         try { dispatch.Abort("The dispatch ended without a successful terminal commit."); }
                         finally
                         {
@@ -572,7 +607,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     else if (!quiet)
                     {
                         // A simple request gets one contribution; anything else invites every other participant to react.
-                        if (!CollaborationScheduler.NeedsOptionalPeer(prompt))
+                        // A message that addresses both agents with their own asks always reaches both.
+                        if (asks is null && !CollaborationScheduler.NeedsOptionalPeer(prompt))
                         { outcomeReason = "The simple request received a contribution; no redundant peer dispatch was needed."; return; }
                         foreach (var peer in participants.Where(p => p != next)) Offer(peer);
                     }

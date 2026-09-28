@@ -26,7 +26,32 @@ public static class ConversationTurns
     {
         var match = Address.Match(prompt);
         if (!match.Success) match = ClosingAddress.Match(prompt);
-        return match.Success ? match.Groups["name"].Value.StartsWith("claude", StringComparison.OrdinalIgnoreCase) ? Agent.Claude : Agent.Codex : null;
+        if (match.Success) return ToAgent(match.Groups["name"].Value);
+        var mentions = Mentions(prompt);
+        return mentions.Length > 0 ? mentions[0].Agent : null;
+    }
+    private static Agent ToAgent(string name) => name.StartsWith("claude", StringComparison.OrdinalIgnoreCase) ? Agent.Claude : Agent.Codex;
+    // An @mention anywhere in the message addresses that agent; the text up to the next mention is its ask.
+    private static readonly Regex Mention = new(@"(?<![\w@])@(?<name>claude(?:[ _-]?code)?|codex|astra)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    public static (Agent Agent, string Ask)[] Mentions(string prompt)
+    {
+        var matches = Mention.Matches(prompt);
+        var result = new List<(Agent, string)>();
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var start = matches[i].Index + matches[i].Length; var end = i + 1 < matches.Count ? matches[i + 1].Index : prompt.Length;
+            var ask = prompt[start..end].Trim().TrimStart(',', ':', ';', '-').TrimEnd(',', ';').Trim();
+            result.Add((ToAgent(matches[i].Groups["name"].Value), ask));
+        }
+        return result.ToArray();
+    }
+    /// <summary>Each agent's own part of a message that @mentions both with different asks; null when it does not.</summary>
+    public static Dictionary<Agent, string>? SplitAsks(string prompt)
+    {
+        var mentions = Mentions(prompt); var agents = mentions.Select(m => m.Agent).Distinct().ToArray();
+        if (agents.Length < 2) return null;
+        var asks = agents.ToDictionary(a => a, a => string.Join(" ", mentions.Where(m => m.Agent == a && m.Ask.Length > 0).Select(m => m.Ask)));
+        return asks.Values.All(v => v.Length > 0) ? asks : null;
     }
     public static Agent? Handoff(string reply) => LastLine(reply).ToLowerInvariant() switch
     {

@@ -4,10 +4,11 @@ namespace AIHub.Core;
 
 public static class CollaborationPresentation
 {
+    public static readonly string[] WorkflowNames = ["implement-review", "investigate-check", "resume-task", "adversarial-review"];
     public static string LoadWorkflows(string directory)
     {
         var content = new StringBuilder("\n\nAI HUB PACKAGED WORKFLOWS (apply only the relevant workflow):\n");
-        foreach (var name in new[] { "implement-review", "investigate-check", "resume-task" })
+        foreach (var name in WorkflowNames)
         {
             var path = Path.Combine(directory, "skills", name, "SKILL.md");
             if (!File.Exists(path) || new FileInfo(path).Length > 16000) throw new IOException("Required collaboration workflow is missing or oversized: " + name);
@@ -81,10 +82,27 @@ public static class CollaborationPresentation
         if (document.Evidence.Count == 0) text.AppendLine("None captured.");
         foreach (var e in document.Evidence.TakeLast(30))
             text.AppendLine($"- `{e.Id}` {e.Provider} {e.Tool} at {e.StartedAt:g}: `{e.Command.Replace('\n', ' ')}` · exit {e.ExitCode?.ToString() ?? "unknown"}{(e.IsError == true ? " (error)" : "")} · {(e.Finished ? Fresh(e.SnapshotRef) && Fresh(e.StartSnapshotRef) ? "files unchanged since" : "files changed since, or freshness unchecked" : "unfinished")}");
+        if (document.Usage.Count > 0)
+        {
+            text.AppendLine("\n## Provider usage\n");
+            text.AppendLine(UsageSummary(document, task.Generation));
+        }
         text.AppendLine("\n## Provenance\n");
         text.AppendLine($"- Messages: {document.Entries.Count} · findings: {document.Findings.Count} · evidence records: {document.Evidence.Count} (pruned {document.PrunedEvidence}, omitted {document.OmittedEvidence}) · events: {document.Events.Count} (evicted {document.EvictedEvents}) · archived conversation records: {document.ArchivedRecords}");
         text.AppendLine("- Findings, summaries and shared-check results are agent claims. Freshness compares saved snapshots with the current one; it certifies that files did not change, not that conclusions are right.");
         return text.ToString();
+    }
+    /// <summary>Token and cost totals for the current phase and for the whole task, per agent, from the providers' own reports.</summary>
+    public static string UsageSummary(CollaborationDocument document, long generation)
+    {
+        if (document.Usage.Count == 0) return "No provider usage recorded yet.";
+        string Line(IEnumerable<UsageRecord> records) => string.Join("; ", records.GroupBy(u => u.Agent).OrderBy(g => g.Key).Select(g =>
+        {
+            var input = g.Sum(u => u.InputTokens); var cached = g.Sum(u => u.CachedInputTokens); var output = g.Sum(u => u.OutputTokens); var cost = g.Sum(u => u.CostUsd); var turns = g.Sum(u => u.Turns);
+            return $"{ConversationTurns.Name(g.Key)}: {ProviderUsage.Format(input)} in ({ProviderUsage.Format(cached)} cached) / {ProviderUsage.Format(output)} out over {turns} turn{(turns == 1 ? "" : "s")}{(cost > 0 ? $", ${cost:0.00}" : "")}";
+        }));
+        var phase = document.Usage.Where(u => u.Generation == generation).ToArray();
+        return $"This phase: {(phase.Length == 0 ? "nothing recorded" : Line(phase))}\nAll phases: {Line(document.Usage)}\nCosts are reported by Claude Code only; Codex reports tokens.";
     }
     public static string History(CollaborationDocument document, CollaborationSnapshot? current = null, bool includeOutput = true)
     {

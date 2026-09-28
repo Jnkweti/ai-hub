@@ -38,8 +38,11 @@ public sealed class CollaborationDocument
     public long ArchivedRecords { get; set; }
     // Files each agent changed, from native edit events, so a second agent changing the same file in a phase is noticed.
     public List<FileTouch> Touches { get; set; } = [];
+    // Provider usage per phase and agent, from the providers' own reports.
+    public List<UsageRecord> Usage { get; set; } = [];
 }
 public sealed record FileTouch(string Path, Agent Agent, DateTimeOffset Time, long Generation);
+public sealed record UsageRecord(long Generation, Agent Agent, long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, int Turns);
 
 /// <summary>One store per application owner. Lock order is always TaskMemory, then this store.</summary>
 public sealed partial class CollaborationStore
@@ -302,6 +305,24 @@ public sealed partial class CollaborationStore
             return parts.Count == 0 ? null : "Outstanding at phase end: " + string.Join("; ", parts) + ".";
         }
     });
+    public const int MaxUsageRecords = 1024;
+    /// <summary>Adds one turn's usage to the phase's record for the agent (one record per phase and agent).</summary>
+    internal void RecordUsage(TaskClaim claim, Agent agent, long input, long cached, long output, decimal cost) => memory.WithClaim(claim, task =>
+    {
+        lock (gate)
+        {
+            var document = Copy(Load(task));
+            var at = document.Usage.FindIndex(u => u.Generation == claim.Generation && u.Agent == agent);
+            if (at >= 0)
+            {
+                var u = document.Usage[at];
+                document.Usage[at] = u with { InputTokens = u.InputTokens + input, CachedInputTokens = u.CachedInputTokens + cached, OutputTokens = u.OutputTokens + output, CostUsd = u.CostUsd + cost, Turns = u.Turns + 1 };
+            }
+            else document.Usage.Add(new(claim.Generation, agent, input, cached, output, cost, 1));
+            while (document.Usage.Count > MaxUsageRecords) document.Usage.RemoveAt(0);
+            Save(document); return 0;
+        }
+    });
     /// <summary>A review-ready markdown packet for the task, built from the ledger and a current snapshot.</summary>
     public string ReviewPacket(string taskId, CancellationToken token)
     {
@@ -414,6 +435,7 @@ public sealed partial class CollaborationStore
         ValidateEvents(document);
         if (document.Version != CollaborationContract.Version || document.TaskId != task.Id || document.RoomId != task.RoomId || document.Workspace != task.Workspace ||
             document.Touches is null || document.Touches.Count > MaxTouches || document.Touches.Any(t => t is null || string.IsNullOrWhiteSpace(t.Path) || t.Path.Length > 512 || !Enum.IsDefined(t.Agent) || t.Generation < 0) ||
+            document.Usage is null || document.Usage.Count > MaxUsageRecords || document.Usage.Any(u => u is null || !Enum.IsDefined(u.Agent) || u.Generation < 0 || u.InputTokens < 0 || u.CachedInputTokens < 0 || u.OutputTokens < 0 || u.CostUsd < 0 || u.Turns < 0) ||
             document.Entries is null || document.Entries.Count > MaxMessages || document.LastSequence < 0 ||
             document.Evidence is null || document.Evidence.Count > 256 || document.Snapshots is null || document.Snapshots.Count > 1024 || document.Findings is null || document.Findings.Count > 512 ||
             document.ContextSections is null || document.ContextSections.Count > 16)
@@ -593,6 +615,8 @@ public sealed class CollaborationDispatch : ICollaborationTools
         not verification. Only a later peer review with fresh successful execution evidence may mark it checked.
         When you disagree that a finding is valid or fixed, return it with disposition disputed and say why; a disputed
         finding blocks assignment_complete until a later review resolves it. Do not pass quietly over a disagreement.
+        For a review that should challenge the work rather than confirm it, put "adversarial" in the review_request
+        scope.focus; the reviewer then follows the adversarial-review workflow.
         Retry the same idempotency_key with unchanged content after an uncertain tool response. Do not submit another
         terminal message after acceptance. Give the user-facing explanation once; tool receipts need no separate acknowledgement.
         Finish with natural prose addressed to the user and match their requested

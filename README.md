@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md).
 
+Version **0.19.0** ships the second batch: @mention addressing anywhere in a message, with a message that mentions both agents giving each its own part; resume commands for each native session in the Tasks window; an adversarial review workflow selectable per review; and per-phase provider usage totals. See [peer features 0.19.0](docs/PEER-FEATURES-0.19.0.md).
+
 Version **0.18.0** ships the first batch from that list: an inactivity watchdog that stops a silent turn, quota-aware scheduling that remembers when a provider's limit resets and skips it until then, tiered delta prompts, edit collision detection between the two agents, a phase completion gate that names what is left outstanding, a disputed finding disposition, and a review packet export. See [peer features 0.18.0](docs/PEER-FEATURES-0.18.0.md).
 
 Version **0.17.0** makes replies faster: workspace fingerprints reuse the hash of every unchanged file, a provider that is over its usage limit sits out the phase while the other agent still answers, and casual greetings get one quick reply. See [responsiveness 0.17.0](docs/RESPONSIVENESS-0.17.0.md).

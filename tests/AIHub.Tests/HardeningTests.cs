@@ -350,6 +350,66 @@ internal static class HardeningTests
                 packet.Contains("## Findings") && packet.Contains("None recorded.") && packet.Contains("## Evidence") && packet.Contains("## Provenance") && packet.Contains("agent claims"), "Packet sections missing:\n" + packet);
             return Task.CompletedTask;
         });
+        // 0.19.0: batch 2 of the peer-project survey.
+        await test("@mentions address an agent anywhere in a message and split asks give each agent its own part", async () =>
+        {
+            Check(ConversationTurns.AddressedSpeaker("can @codex check this before we merge?") == Agent.Codex, "Inline mention not recognised");
+            Check(ConversationTurns.AddressedSpeaker("thoughts, @claude-code?") == Agent.Claude && ConversationTurns.AddressedSpeaker("email me at user@codex.example") is null, "Mention matching too loose or too strict");
+            var asks = ConversationTurns.SplitAsks("Two jobs: @claude write the tests for the parser, @codex review the parser itself.");
+            Check(asks is not null && asks[Agent.Claude] == "write the tests for the parser" && asks[Agent.Codex] == "review the parser itself.", "Split asks wrong: " + string.Join(" | ", asks?.Select(p => p.Key + "=" + p.Value) ?? []));
+            Check(ConversationTurns.SplitAsks("@codex do this") is null && ConversationTurns.SplitAsks("@codex @claude both of you look") is null, "A single or empty mention was treated as a split");
+            using var f = new CollaborationRoutingTests.Fixture(); var prompts = new Dictionary<Agent, string>();
+            await using var hub = f.Hub((agent, host, _, prompt, _) =>
+            {
+                lock (prompts) prompts[agent] = prompt;
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult(agent + " did its part.");
+            });
+            await hub.SubmitAsync("@claude write the tests, @codex review the parser", "Both"); await f.Finished();
+            Check(f.Speakers.SequenceEqual([Agent.Claude, Agent.Codex]), "First mentioned agent did not speak first, or the second was skipped: " + string.Join(",", f.Speakers));
+            Check(prompts[Agent.Claude].Contains("addressed you directly with this part of the message: write the tests") && prompts[Agent.Codex].Contains("addressed you directly with this part of the message: review the parser"), "Each agent did not receive its own ask");
+        });
+        await test("provider usage reports are read and recorded per phase and agent", () =>
+        {
+            Check(ProviderUsage.TryParse(Agent.Codex, "{\"threadId\":\"t\",\"tokenUsage\":{\"total\":{\"totalTokens\":957963,\"inputTokens\":954592,\"cachedInputTokens\":867456,\"outputTokens\":3371},\"last\":{\"inputTokens\":97314}}}", out var codex)
+                && codex is { Input: 954592, Cached: 867456, Output: 3371, TokensCumulative: true, Cost: 0 }, "Codex usage not parsed");
+            Check(ProviderUsage.TryParse(Agent.Claude, "{\"costUsd\":1.612912,\"usage\":{\"input_tokens\":98,\"cache_creation_input_tokens\":71604,\"cache_read_input_tokens\":245608,\"output_tokens\":2369}}", out var claude)
+                && claude is { Input: 317310, Cached: 245608, Output: 2369, TokensCumulative: false, CostCumulative: true } && claude.Cost == 1.612912m, "Claude usage not parsed");
+            Check(!ProviderUsage.TryParse(Agent.Codex, "not json", out _) && !ProviderUsage.TryParse(Agent.Claude, "{\"other\":1}", out _), "Garbage accepted as usage");
+            using var f = new CollaborationRoutingTests.Fixture(); var claim = f.Memory.Begin(f.TaskId, false);
+            f.Store.RecordUsage(claim, Agent.Codex, 1000, 800, 50, 0m); f.Store.RecordUsage(claim, Agent.Codex, 500, 400, 25, 0m); f.Store.RecordUsage(claim, Agent.Claude, 2000, 1500, 100, 0.5m);
+            var doc = f.Store.Read(f.TaskId); var record = doc.Usage.Single(u => u.Agent == Agent.Codex);
+            Check(doc.Usage.Count == 2 && record is { InputTokens: 1500, CachedInputTokens: 1200, OutputTokens: 75, Turns: 2 }, "Usage was not aggregated per phase and agent");
+            var summary = CollaborationPresentation.UsageSummary(doc, claim.Generation);
+            Check(summary.Contains("Codex: 1,500 in (1,200 cached) / 75 out over 2 turns") && summary.Contains("Claude Code: 2,000 in") && summary.Contains("$0.50"), "Usage summary wrong: " + summary);
+            f.Memory.End(claim, WorkState.Ready, "done");
+            return Task.CompletedTask;
+        });
+        await test("a phase's provider usage is recorded from the clients' reports, with cumulative totals turned into deltas", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            StructuredClientEvents.Hook = client =>
+            {
+                client.Emit(new(Agent.Codex, EventKind.Usage, "Token usage updated", Detail: "{\"threadId\":\"t\",\"tokenUsage\":{\"total\":{\"inputTokens\":1000,\"cachedInputTokens\":600,\"outputTokens\":40}}}"));
+                client.Emit(new(Agent.Codex, EventKind.Usage, "Token usage updated", Detail: "{\"threadId\":\"t\",\"tokenUsage\":{\"total\":{\"inputTokens\":1800,\"cachedInputTokens\":1500,\"outputTokens\":70}}}"));
+            };
+            try
+            {
+                await using var hub = f.Hub((_, host, _, _, _) => { CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Done."); });
+                await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+            }
+            finally { StructuredClientEvents.Hook = null; }
+            var usage = f.Store.Read(f.TaskId).Usage.Single();
+            Check(usage is { Agent: Agent.Codex, InputTokens: 1800, CachedInputTokens: 1500, OutputTokens: 70, Turns: 1 }, $"Cumulative totals were not recorded as this turn's usage: {usage}");
+        });
+        await test("the adversarial review workflow ships with the plugin and the instructions point to it", () =>
+        {
+            var workflows = CollaborationPresentation.LoadWorkflows(Path.Combine(CollaborationTests.Root, "plugins", "ai-hub-collaboration"));
+            Check(workflows.Contains("name: adversarial-review") && workflows.Contains("concrete failure scenario") && workflows.Contains("return it as disputed"), "Adversarial review skill missing or incomplete");
+            using var f = new CollaborationRoutingTests.Fixture(); var claim = f.Memory.Begin(f.TaskId, false); var dispatch = f.Dispatch(claim);
+            Check(dispatch.Instructions.Contains("\"adversarial\" in the review_request") && dispatch.Instructions.Contains("adversarial-review workflow"), "Instructions do not mention the adversarial preset");
+            dispatch.Abort("done"); f.Memory.End(claim, WorkState.Ready, "done");
+            return Task.CompletedTask;
+        });
     }
 }
 
