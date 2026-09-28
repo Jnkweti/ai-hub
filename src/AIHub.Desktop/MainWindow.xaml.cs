@@ -346,6 +346,14 @@ public partial class MainWindow : Window
                 current.Messages.Add(progressQuestion); current.Messages.Add(answer); messages.Add(new(progressQuestion)); messages.Add(new(answer));
                 ShowConversation(); Save(); return;
             }
+            // A message during a running phase joins the live stream; Stop all remains the way to interrupt work.
+            if (!ProjectStatusWorkflow.IsStatusRequest(prompt) && current.ActiveTaskId.Length > 0 && hub!.TaskId == current.ActiveTaskId && await hub.InterjectAsync(prompt))
+            {
+                var aside = new SavedMessage { Text = prompt, Route = Target.SelectedIndex == 0 ? "Both" : Target.SelectedIndex == 1 ? "Codex" : "Claude", TaskId = current.ActiveTaskId };
+                current.Messages.Add(aside); messages.Add(new(aside));
+                AddActivity("Hub", "Message joined the live stream", "Both agents see it at their next opportunity; the running turn was not interrupted. Use Stop all to interrupt work.");
+                followChat = true; ShowConversation(); ChatScroll.ScrollToEnd(); Save(); RefreshTaskSummary(); return;
+            }
             await hub!.StopAsync(); MarkInterrupted();
             SetPause("");
             if (!CollaborationGuard.IsSocialOnly(prompt)) current.LastTask = prompt;

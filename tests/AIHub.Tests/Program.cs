@@ -21,6 +21,8 @@ if (args.Length == 2 && args[0] == "--quiet-peer-live")
 { await SharedConversationLiveCheck.Run(args[1], conciseOnly: true); return; }
 if (args.Length == 2 && args[0] == "--shared-context-live")
 { await SharedContextLiveCheck.Run(args[1]); return; }
+if (args.Length == 2 && args[0] == "--live-stream-live")
+{ await LiveStreamLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--shared-work-live")
 { await SharedWorkLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--claude-work-live")

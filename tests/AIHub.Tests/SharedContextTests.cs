@@ -57,8 +57,9 @@ internal static class SharedContextTests
                 return "Published " + receipt.Str("section_id");
             });
             await hub.SubmitAsync("Find why notes fail", "Both"); await f.Finished();
-            Check(f.Memory.Get(f.TaskId)!.State == WorkState.Ready && started == 2 && f.Calls == 2, "Unexpected extra main turn: " + f.Memory.Get(f.TaskId)!.Reason);
-            Check(sessions.Count == 2, "Research session replaced a main session");
+            // Requester synthesizes, then the peer gets one reaction opportunity to the synthesis: three main turns.
+            Check(f.Memory.Get(f.TaskId)!.State == WorkState.Ready && started == 2 && f.Calls == 3, "Unexpected main turn count: " + f.Calls + " · " + f.Memory.Get(f.TaskId)!.Reason);
+            Check(sessions.Count == 3, "Research session replaced a main session");
             Check(!chat.Any(t => t.StartsWith("Published ")), "Research prose leaked into chat instead of the shared window");
             var doc = f.Store.Read(f.TaskId);
             var workIds = doc.Assignments.Where(a => a.Role == "research").Select(a => a.Id).ToHashSet();
