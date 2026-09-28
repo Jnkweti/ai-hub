@@ -13,8 +13,11 @@ try
 {
     await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
     await pipe.ConnectAsync(10000, life.Token);
-    using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, leaveOpen: true);
-    using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
+    // The reader and writer are deliberately not disposed. AutoFlush leaves nothing buffered, and the host
+    // usually closes the pipe first; a flush during disposal then throws after the connection is already gone,
+    // which turned an orderly revocation into an unhandled-exception crash and a slow Windows error report.
+    var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, leaveOpen: true);
+    var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
     await writer.WriteLineAsync(credential); credential = null;
     if (await reader.ReadLineAsync(life.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(5)) != "OK")
         throw new IOException("The host declined the collaboration connection.");
@@ -34,10 +37,9 @@ try
         TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
     var outbound = Pump(reader, Console.Out);
     var finished = await Task.WhenAny(inbound, outbound);
-    await finished;
     await life.CancelAsync();
-    pipe.Close();
+    await finished; // A broken host pipe surfaces here as IOException and is reported below as a normal close.
     return 0;
 }
-catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException or UnauthorizedAccessException)
+catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException or UnauthorizedAccessException or ObjectDisposedException)
 { Console.Error.WriteLine("AI Hub collaboration connection closed or unavailable (" + ex.GetType().Name + ")."); return 1; }

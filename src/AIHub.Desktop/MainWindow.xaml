@@ -58,8 +58,11 @@
            <Button.ContextMenu><ContextMenu><MenuItem x:Name="RefreshStatusMenuItem" Header="Refresh status" Click="RefreshStatus_Click" ToolTip="Run a fresh inspection even when the saved report matches"/><MenuItem x:Name="ForgetStatusMenuItem" Header="Forget saved status" Click="ForgetStatus_Click"/></ContextMenu></Button.ContextMenu>
           </Button>
          </Grid>
-         <Button x:Name="TasksButton" Content="Tasks and notes" Click="Tasks_Click" Padding="8,7" FontSize="12" Margin="0,8,0,0" AutomationProperties.Name="Project tasks and notes"/>
-         <Button x:Name="AuditButton" Content="Local diagnostics" Click="Audit_Click" Padding="8,7" FontSize="12" Margin="0,8,0,0"/>
+         <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Button x:Name="TasksButton" Content="Tasks and notes" Click="Tasks_Click" Padding="8,7" FontSize="12" AutomationProperties.Name="Project tasks and notes"/>
+          <!-- Icon-only so the compact rail keeps the same height as before; the room list above is the flexible area. -->
+          <Button x:Name="AuditButton" Grid.Column="1" Click="Audit_Click" Padding="8,4" Margin="4,0,0,0" ToolTip="Local diagnostics: bounded local error and activity metadata. Reviews run only when you send them." AutomationProperties.Name="Local diagnostics report"><ui:HubIcon Kind="activity" Width="14" Height="14"/></Button>
+         </Grid>
          <TextBlock x:Name="TaskSummaryLabel" Text="No active tasks" FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0"/>
         </StackPanel>
        </Border>

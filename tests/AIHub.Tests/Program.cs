@@ -97,10 +97,14 @@ if (args.Contains("--connect") || args.Contains("--live"))
     return;
 }
 
+// --only <text> runs the tests whose names contain <text>; --repeat <n> runs each selected test n times.
+var only = args.SkipWhile(a => a != "--only").Skip(1).FirstOrDefault();
+var repeat = int.TryParse(args.SkipWhile(a => a != "--repeat").Skip(1).FirstOrDefault(), out var count) ? Math.Clamp(count, 1, 1000) : 1;
 var passed = 0;
 async Task Test(string name, Func<Task> test)
 {
-    await test(); passed++; Console.WriteLine("PASS " + name);
+    if (only is not null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) return;
+    for (var i = 0; i < repeat; i++) { await test(); passed++; Console.WriteLine("PASS " + name + (repeat > 1 ? $" [{i + 1}/{repeat}]" : "")); }
 }
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 void DeleteFixtureDirectory(string root)

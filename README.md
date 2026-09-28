@@ -8,7 +8,7 @@ Double-click **AI Hub** on your desktop, or run **Launch AI Hub.cmd** in this fo
 
 1. Use **Change folder** to select the project you want to discuss.
 2. Leave **Both agents** selected and send a message. Enter sends; Shift+Enter adds a line.
-3. With **Both agents**, each agent gets an opportunity to contribute. The second checks the first answer and speaks only to add something useful. A pass stays in task history; exact repeated answers are hidden. **Auto collaborate** enables additional agent-to-agent follow-ups. A blocked task, invalid messages after bounded repairs, or the round limit pauses the exchange.
+3. With **Both agents**, each agent gets an opportunity to contribute. The second checks the first answer and speaks only to add something useful. A pass stays in task history; exact and near-repeated answers are hidden. **Auto collaborate** enables additional agent-to-agent follow-ups: after both have contributed, the other agent is invited again while the latest reply adds something new, and a quiet pass, a repeat, a request for your input, or the round limit ends the exchange. A blocked task or invalid messages after bounded repairs pause it.
 4. **Stop all** cancels agents in every conversation, including background tasks, and terminates their owned CLI process trees. Sending a new message interrupts only that conversation's exchange and starts with your latest instruction.
 5. Select an activity event to inspect its full details. Use **Export conversation** to save the visible chat as Markdown.
 
@@ -19,6 +19,8 @@ With **Both agents** selected, both receive the current message and the same ini
 The default limit is **six automatic rounds** after the initial replies; each round is one turn per agent. Adjust it from 1–50 in Settings. A pause banner and chat notice explain the reason. **Continue task** starts another run after you review progress; it never replaces an existing draft. For a greeting, a completed task, or a question awaiting your answer, use **Write a message** instead. Automatic collaboration uses normal provider usage or billing; the round limit is not a token or spending cap.
 
 ## Interface
+
+Version **0.12.0** adds **Local diagnostics**, the pulse-icon button beside **Tasks and notes** in the Shared project panel. AI Hub keeps a bounded, metadata-only record of provider errors, conversation-save failures, recovery notices, suppressed repeats, round limits, suspected five-minute stalls, and unhandled application errors: category, count, first and last time, room and task references, exception type, and the app version that recorded it. Chat text, prompts, tool output, and exception messages are never stored. Open the report to read it, **Export report** to save it as Markdown, or **Prepare agent review** to create a separate read-only conversation with the report as its draft; you decide when to send it, and nothing runs periodically. **Settings → Collect local diagnostics** turns collection off while keeping existing findings. See [local diagnostics verification](docs/LOCAL-DIAGNOSTICS-0.12.0.md).
 
 Version **0.9.0** includes the shared-participation correction developed in the 0.7.1 candidate. Both selected agents get an opportunity to contribute without an explicit handoff, the starting agent rotates on unaddressed follow-ups, and routine status receipts remain in task history. Quiet peer checks and parallel context gathering are described in [release verification](docs/SHARED-CONTEXT-0.8.0.md).
 
@@ -119,6 +121,7 @@ Saved under `%LOCALAPPDATA%\AIHub`:
 - `collaboration-<task-id>.json`: task context, assignments, evidence and full host input prompts in plaintext.
 - `source-<task-id>-<hash>.json`: exact long-message originals, checked against their recorded hash when retrieved.
 - `instance.lock`: exclusive application ownership of this profile.
+- `diagnostics\audit.json`: bounded local diagnostics metadata (at most 100 findings and 200 recent event records). It never contains message, prompt, tool or exception text.
 - `project-status/<workspace-hash>/report.json`: latest validated status report, source conversation, configuration, fingerprints and provider usage. An adjacent `inspection.lock` enforces one status owner across processes sharing this data directory.
 
 These files contain conversation and tool content in plain text. Native CLI session history remains in each provider's usual storage. `AIHUB_DATA_DIR` can override AI Hub's data directory for isolated testing.
@@ -132,6 +135,9 @@ Requires Windows and the .NET 10 SDK to build. `Build.ps1` publishes a self-cont
 ```powershell
 .\Build.ps1
 dotnet run --project tests\AIHub.Tests -c Release
+
+# Run a subset repeatedly, for example the bridge tests ten times each.
+tests\AIHub.Tests\bin\Release\net10.0\AIHub.Tests.exe --only bridge --repeat 10
 
 # Offline desktop checks for resizing, panel transitions, and reduced motion.
 powershell -ExecutionPolicy Bypass -File tests\Appearance-Smoke.ps1
@@ -151,6 +157,7 @@ powershell -ExecutionPolicy Bypass -File tests\Project-Status-Smoke.ps1
 powershell -ExecutionPolicy Bypass -File tests\Activity-Smoke.ps1
 powershell -ExecutionPolicy Bypass -File tests\Inline-Input-Smoke.ps1
 powershell -ExecutionPolicy Bypass -File tests\Audit-Smoke.ps1
+powershell -ExecutionPolicy Bypass -File tests\Local-Diagnostics-Smoke.ps1
 ```
 
 The keyboard, navigation and inline-input checks briefly focus their isolated test window to send real keyboard input. Test providers are fixtures unless `-Live` is explicitly passed to the keyboard guard test.

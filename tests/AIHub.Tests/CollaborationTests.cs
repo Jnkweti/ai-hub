@@ -188,7 +188,8 @@ internal static class CollaborationTests
             var capped = await rpc.Call("tools/call", new JsonObject { ["name"] = "submit_message", ["arguments"] = Submission(key: "after-cap") }, timeout.Token);
             Check(capped.Bool("isError") && f.Probe.Messages.Length == 1, "Repair budget bypassed");
             await host.DisposeAsync();
-            Check(await rpc.Exited.WaitAsync(TimeSpan.FromSeconds(5)), "Bridge survived revoked host");
+            var survived = await rpc.ExitReport(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(25));
+            Check(survived is null, "Bridge survived revoked host: " + survived);
         });
         await test("collaboration bridge rejects wrong credentials and unbound native sessions", async () =>
         {
@@ -213,10 +214,27 @@ internal static class CollaborationTests
 internal sealed class ProbeWire : IAsyncDisposable
 {
     private readonly System.Diagnostics.Process process;
+    private readonly System.Text.StringBuilder errors = new();
     private int sequence;
     public Task<bool> Exited { get; }
-    private ProbeWire(System.Diagnostics.Process process) { this.process = process; Exited = Wait(); }
+    private ProbeWire(System.Diagnostics.Process process) { this.process = process; Exited = Wait(); _ = PumpErrors(); }
     private async Task<bool> Wait() { await process.WaitForExitAsync(); return true; }
+    // Drain stderr continuously so a bridge that writes its closing notice never blocks, and so failures can quote it.
+    private async Task PumpErrors()
+    {
+        try { string? line; while ((line = await process.StandardError.ReadLineAsync()) is not null) lock (errors) errors.AppendLine(line); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+    }
+    public string Errors { get { lock (errors) return errors.ToString(); } }
+    /// <summary>Null when the bridge exits within <paramref name="limit"/>; otherwise a diagnostic naming how late it was.</summary>
+    public async Task<string?> ExitReport(TimeSpan limit, TimeSpan grace)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try { await Exited.WaitAsync(limit); return null; } catch (TimeoutException) { }
+        var late = true;
+        try { await Exited.WaitAsync(grace); } catch (TimeoutException) { late = false; }
+        return $"{(late ? "exited late" : "still running")} after {clock.Elapsed.TotalSeconds:F1}s; bridge stderr: '{Errors.Trim()}'";
+    }
     public static async Task<ProbeWire> Connect(CollaborationMcpHost host, string cwd, CancellationToken token, bool wrongCredential = false)
     {
         var info = new System.Diagnostics.ProcessStartInfo(host.BridgeExecutable)
@@ -239,7 +257,7 @@ internal sealed class ProbeWire : IAsyncDisposable
         await process.StandardInput.WriteLineAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = ++sequence, ["method"] = method, ["params"] = args }.ToJsonString());
         await process.StandardInput.FlushAsync(token);
         var line = await process.StandardOutput.ReadLineAsync(token);
-        if (line is null) throw new IOException("Bridge exited: " + await process.StandardError.ReadToEndAsync(token));
+        if (line is null) { await Task.Delay(100, token); throw new IOException("Bridge exited: " + Errors); }
         var response = JsonNode.Parse(line)!;
         if (response["error"] is { } error) throw new IOException(error.ToJsonString());
         return response["result"]!;

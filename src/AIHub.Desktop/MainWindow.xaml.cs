@@ -54,6 +54,10 @@ public partial class MainWindow : Window
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
         if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
+        // Crash-class failures are recorded and flushed immediately; the failure itself is not suppressed.
+        Application.Current.DispatcherUnhandledException += (_, e) => audit.RecordUnhandled(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => { if (e.ExceptionObject is Exception ex) audit.RecordUnhandled(ex); };
+        TaskScheduler.UnobservedTaskException += (_, e) => audit.Record(AuditCode.UnhandledError, exception: e.Exception.GetBaseException());
         // Native requests cannot survive an application restart.
         foreach (var message in rooms.SelectMany(r => r.Messages))
             if (message.Input is { Status: InputStatus.Pending } input) input.Status = InputStatus.Cancelled;
@@ -444,7 +448,7 @@ public partial class MainWindow : Window
     {
         var outgoing = hub;
         hub = null; // Queued callbacks cannot recreate a removed room's messages or activity log.
-        workers.Remove(current.Id);
+        workers.Remove(current.Id); audit.Forget(current.Id);
         if (outgoing is not null) await outgoing.DisposeAsync();
         MarkInterrupted();
     }
@@ -456,6 +460,7 @@ public partial class MainWindow : Window
     private async Task DisposeAllWorkersAsync()
     {
         var owned = workers.Values.ToArray(); workers.Clear(); hub = null;
+        foreach (var worker in owned) audit.Forget(worker.Room.Id);
         await Task.WhenAll(owned.Select(async worker => await worker.Hub.DisposeAsync()));
         CancelPendingInputs(allRooms: true);
         foreach (var room in rooms)

@@ -28,6 +28,16 @@ The user asked Codex to finish its current work so Claude can take over. The use
 6. Decide whether richer stack fingerprints and resolution/status tracking are needed. Current findings document category, count, first/last timestamps and room/task references; they do not establish root cause or automatically create fixes. Reviews are deliberately read-only and on demand.
 7. Validate the final package with existing smoke scripts, update the version and release docs, then install only once the production app has no active work. Preserve production data and installation backups. Do not overwrite an active app or claim this source change is installed.
 
+## Outcome
+
+Claude Code completed the remaining work on September 27, 2026. Items 1 to 5 above were addressed, item 6
+was decided against for this release, and item 7 is complete up to installation, which waits for the
+user. Two further problems were found and fixed on the way: the MCP bridge crashed on orderly shutdown,
+which made the "revokes on stop" test timing-dependent, and the full-width diagnostics button collapsed
+the room list at compact window sizes. Evidence and details are in
+[LOCAL-DIAGNOSTICS-0.12.0.md](LOCAL-DIAGNOSTICS-0.12.0.md) and its
+[checklist](LOCAL-DIAGNOSTICS-0.12.0-CHECKLIST.md).
+
 ## Useful commands and existing evidence
 
 Build: `dotnet build 'AI Hub.slnx' -c Release --no-restore --nologo -v minimal -m:1 -p:UseSharedCompilation=false`
