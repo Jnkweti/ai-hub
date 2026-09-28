@@ -79,6 +79,8 @@ public class HubSettings
     public int TurnInactivitySeconds { get; set; } = HubCoordinator.DefaultTurnInactivitySeconds;
     /// <summary>Experimental: deliver your messages into Claude Code's running turn (requires a Claude Code build with channels).</summary>
     public bool MidTurnPush { get; set; }
+    /// <summary>Experimental: each agent edits in its own git worktree; the host merges into an integration branch you apply to the project when ready.</summary>
+    public bool IsolateAgentWorktrees { get; set; }
     /// <summary>Providers over their usage limit, by agent name, with the moment they become usable again.</summary>
     public Dictionary<string, DateTimeOffset> ProviderUnavailableUntil { get; set; } = [];
 }

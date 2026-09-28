@@ -57,6 +57,8 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(diagnostics); Description("Keep bounded local error and activity metadata, excluding chat and tool text. Reviews run only when you request them. Turning this off stops collection and retains existing findings.");
         var push = new CheckBox { Name = "MidTurnPushToggle", Content = "Deliver my messages to Claude Code mid-turn (experimental)", IsChecked = Settings.MidTurnPush, Margin = new(0,8,0,0) };
         panel.Children.Add(push); Description("While Claude Code is working, a message you send reaches it immediately through a channel instead of waiting for its next turn. Codex always sees messages at its next turn. Needs a Claude Code build with channels; saving checks that before enabling.");
+        var worktrees = new CheckBox { Name = "IsolateWorktreesToggle", Content = "Give each agent its own git worktree for edit-enabled tasks (experimental)", IsChecked = Settings.IsolateAgentWorktrees, Margin = new(0,8,0,0) };
+        panel.Children.Add(worktrees); Description("In a git project with edits enabled, Codex and Claude Code each edit in their own worktree. The Hub commits each turn and merges it into an integration branch; conflicts are reported instead of resolved silently. Your project folder changes only when you choose Merge into project in Tasks.");
 
         var advancedPanel = new StackPanel { Margin = new(0,12,0,0) };
         TextBox Field(string label, string value)
@@ -127,6 +129,7 @@ public sealed class SettingsWindow : Window
                 finally { save.IsEnabled = true; }
             }
             Settings.MidTurnPush = push.IsChecked == true;
+            Settings.IsolateAgentWorktrees = worktrees.IsChecked == true;
             Settings.TurnInactivitySeconds = seconds;
             Settings.CodexPath = codex.Text.Trim(); Settings.ClaudePath = claude.Text.Trim();
             Settings.CodexModel = codexModel.Text.Trim(); Settings.ClaudeModel = claudeModel.Text.Trim();

@@ -23,7 +23,7 @@ public sealed partial class CollaborationStore
     public (CollaborationDocument Document, CollaborationSnapshot Current) Inspect(string taskId, CancellationToken token)
     {
         var document = Read(taskId);
-        return (document, CaptureSnapshot(document.Workspace, token));
+        return (document, CaptureSnapshot(Root(document), token));
     }
     private static bool Fresh(CollaborationDocument doc, string? reference, CollaborationSnapshot current) =>
         reference is not null && doc.Snapshots.TryGetValue(reference, out var previous) && previous.Complete && current.Complete && previous.Fingerprint == current.Fingerprint;
@@ -40,7 +40,7 @@ public sealed partial class CollaborationStore
         if (touched.Length > 0) return RecordTouches(dispatch, item.Agent, touched);
         var commandEvent = item.Kind == EventKind.Tool && (detail?.Str("type") == "commandExecution" || item.Agent == Agent.Claude && item.Text is "Bash" or "PowerShell" or "Read" or "Grep" or "Glob");
         var finished = item.Agent == Agent.Codex ? commandEvent && detail?.Str("status") is "completed" or "failed" or "declined" : item.Kind == EventKind.ToolOutput && detail?.Bool("isFinal") == true;
-        var view = Use(dispatch, (task, document) => (task.Workspace, Old: document.Evidence.FirstOrDefault(e => e.DispatchId == dispatch.Id && e.SourceEventId == item.ItemId)));
+        var view = Use(dispatch, (task, document) => (Workspace: Root(document), Old: document.Evidence.FirstOrDefault(e => e.DispatchId == dispatch.Id && e.SourceEventId == item.ItemId)));
         if ((!commandEvent && view.Old is null) || view.Old?.Finished == true) return null;
         var captured = finished || view.Old is null ? CaptureSnapshot(view.Workspace, dispatch.Token) : null;
         return Use<string?>(dispatch, (task, original) =>
@@ -96,13 +96,20 @@ public sealed partial class CollaborationStore
     private string? RecordTouches(CollaborationDispatch dispatch, Agent agent, string[] paths) => Use<string?>(dispatch, (task, original) =>
     {
         var document = Copy(original); var collided = new List<string>(); var generation = dispatch.Claim.Generation;
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(task.Workspace));
+        // A path is relative to whichever tree the agent works in: the project, or its own worktree when isolated.
+        var roots = new[] { task.Workspace, document.Worktrees?.PathFor(agent), document.Worktrees?.Integration }.Where(r => !string.IsNullOrEmpty(r))
+            .Select(r => Path.TrimEndingDirectorySeparator(Path.GetFullPath(r!))).ToArray();
         foreach (var raw in paths)
         {
-            string full;
-            try { full = Path.GetFullPath(Path.IsPathRooted(raw) ? raw : Path.Combine(root, raw)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
-            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
-            var path = Path.GetRelativePath(root, full).Replace('\\', '/');
+            string? path = null;
+            foreach (var root in roots)
+            {
+                string full;
+                try { full = Path.GetFullPath(Path.IsPathRooted(raw) ? raw : Path.Combine(root, raw)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { break; }
+                if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                path = Path.GetRelativePath(root, full).Replace('\\', '/'); break;
+            }
+            if (path is null) continue;
             var other = document.Touches.LastOrDefault(t => t.Generation == generation && t.Agent != agent && string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase));
             document.Touches.Add(new(path, agent, DateTimeOffset.UtcNow, generation));
             while (document.Touches.Count > MaxTouches) document.Touches.RemoveAt(0);

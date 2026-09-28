@@ -40,6 +40,8 @@ public sealed class CollaborationDocument
     public List<FileTouch> Touches { get; set; } = [];
     // Provider usage per phase and agent, from the providers' own reports.
     public List<UsageRecord> Usage { get; set; } = [];
+    // When agents work in isolated git worktrees: where they are, and which branch holds the merged result.
+    public WorktreeLayout? Worktrees { get; set; }
 }
 public sealed record FileTouch(string Path, Agent Agent, DateTimeOffset Time, long Generation);
 public sealed record UsageRecord(long Generation, Agent Agent, long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, int Turns);
@@ -140,7 +142,7 @@ public sealed partial class CollaborationStore
         using var captureLife = CancellationTokenSource.CreateLinkedTokenSource(token, dispatch.Token);
         token = captureLife.Token;
         // Copy bound state briefly, hash without either global lock, then Use revalidates ownership.
-        var view = Use(dispatch, (task, document) => (task.Workspace, Document: Copy(document)));
+        var view = Use(dispatch, (task, document) => (Workspace: Root(document), Document: Copy(document)));
         if (tool is "get_shared_context" or "get_evidence" or "read_context_source")
         {
             var response = tool == "get_shared_context"
@@ -240,7 +242,7 @@ public sealed partial class CollaborationStore
     private static bool LiveTerminal(StoredCollaborationMessage e) => IsTerminal(e.Message.Content) && e.Message.State is not (DeliveryState.Interrupted or DeliveryState.Canceled);
     internal CollaborationMessage Complete(CollaborationDispatch dispatch)
     {
-        var view = Use(dispatch, (task, document) => (task.Workspace, Terminal: document.Entries.LastOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && LiveTerminal(e)), Findings: document.Findings.Count));
+        var view = Use(dispatch, (task, document) => (Workspace: Root(document), Terminal: document.Entries.LastOrDefault(e => e.Message.Envelope.DispatchId == dispatch.Id && LiveTerminal(e)), Findings: document.Findings.Count));
         var needsCapture = view.Terminal?.Message.Content.Type is "review_request" or "review_result" || view.Terminal?.Message.Content.Status == "assignment_complete" && view.Findings > 0;
         var captured = needsCapture ? CaptureSnapshot(view.Workspace, dispatch.Token) : null;
         return Use(dispatch, (_, original) =>
@@ -306,6 +308,38 @@ public sealed partial class CollaborationStore
         }
     });
     public const int MaxUsageRecords = 1024;
+    /// <summary>Where the task's current files are: the integration worktree when agents are isolated, else the project itself.</summary>
+    internal static string Root(CollaborationDocument document) => document.Worktrees?.Integration is { Length: > 0 } integration && Directory.Exists(integration) ? integration : document.Workspace;
+    internal void SetWorktrees(TaskClaim claim, WorktreeLayout layout) => memory.WithClaim(claim, task =>
+    {
+        lock (gate) { var document = Copy(Load(task)); document.Worktrees = layout; Save(document); return 0; }
+    });
+    public WorktreeLayout? Worktrees(string taskId) => Read(taskId).Worktrees;
+    /// <summary>Merges the task's integration branch into the user's checkout. Returns conflicting files (merge aborted) or none.</summary>
+    public async Task<string[]> MergeWorktreesIntoProjectAsync(string taskId, CancellationToken token)
+    {
+        var task = memory.Get(taskId) ?? throw new IOException("Unknown task.");
+        WorktreeLayout layout;
+        lock (gate)
+        {
+            if (active.ContainsKey(taskId)) throw new IOException("Stop the task before merging its worktrees.");
+            layout = Load(task).Worktrees ?? throw new IOException("This task has no agent worktrees.");
+        }
+        return await GitWorktrees.MergeIntoProjectAsync(task.Workspace, layout, token);
+    }
+    /// <summary>Removes the task's worktrees and branches. Unmerged integration history is lost.</summary>
+    public async Task RemoveWorktreesAsync(string taskId, CancellationToken token)
+    {
+        var task = memory.Get(taskId) ?? throw new IOException("Unknown task.");
+        WorktreeLayout layout;
+        lock (gate)
+        {
+            if (active.ContainsKey(taskId)) throw new IOException("Stop the task before removing its worktrees.");
+            layout = Load(task).Worktrees ?? throw new IOException("This task has no agent worktrees.");
+        }
+        await GitWorktrees.RemoveAsync(task.Workspace, layout, token);
+        memory.WithTask(taskId, current => { lock (gate) { var document = Copy(Load(current)); document.Worktrees = null; Save(document); return 0; } });
+    }
     /// <summary>Adds one turn's usage to the phase's record for the agent (one record per phase and agent).</summary>
     internal void RecordUsage(TaskClaim claim, Agent agent, long input, long cached, long output, decimal cost) => memory.WithClaim(claim, task =>
     {
@@ -436,6 +470,7 @@ public sealed partial class CollaborationStore
         if (document.Version != CollaborationContract.Version || document.TaskId != task.Id || document.RoomId != task.RoomId || document.Workspace != task.Workspace ||
             document.Touches is null || document.Touches.Count > MaxTouches || document.Touches.Any(t => t is null || string.IsNullOrWhiteSpace(t.Path) || t.Path.Length > 512 || !Enum.IsDefined(t.Agent) || t.Generation < 0) ||
             document.Usage is null || document.Usage.Count > MaxUsageRecords || document.Usage.Any(u => u is null || !Enum.IsDefined(u.Agent) || u.Generation < 0 || u.InputTokens < 0 || u.CachedInputTokens < 0 || u.OutputTokens < 0 || u.CostUsd < 0 || u.Turns < 0) ||
+            document.Worktrees is { } worktrees && (string.IsNullOrWhiteSpace(worktrees.Root) || string.IsNullOrWhiteSpace(worktrees.Integration) || string.IsNullOrWhiteSpace(worktrees.Codex) || string.IsNullOrWhiteSpace(worktrees.Claude) || !worktrees.BranchPrefix.StartsWith("aihub/", StringComparison.Ordinal)) ||
             document.Entries is null || document.Entries.Count > MaxMessages || document.LastSequence < 0 ||
             document.Evidence is null || document.Evidence.Count > 256 || document.Snapshots is null || document.Snapshots.Count > 1024 || document.Findings is null || document.Findings.Count > 512 ||
             document.ContextSections is null || document.ContextSections.Count > 16)

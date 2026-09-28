@@ -28,6 +28,7 @@ public partial class MainWindow
     {
         if (switching || sending || closing) return;
         var workspace = current.Workspace;
+        string? shown = null; // Signature of the task list as last rendered; the per-second tick rebuilds only when it changes.
         var window = new Window { Owner = this, Title = "Project tasks and notes", Width = 820, Height = 690,
             MinWidth = 620, MinHeight = 550, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var grid = new Grid { Margin = new(22) };
@@ -55,6 +56,28 @@ public partial class MainWindow
         var create = Button("NewTaskButton", "New task");
         var evidence = Button("TaskEvidenceButton", "Check evidence");
         var packet = Button("ReviewPacketButton", "Review packet");
+        var merge = Button("MergeWorktreesButton", "Merge into project");
+        var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
+        merge.Click += async (_, _) =>
+        {
+            if (list.SelectedItem is not TaskRow row) return;
+            merge.IsEnabled = false;
+            try
+            {
+                var conflicts = await collaborationStore.MergeWorktreesIntoProjectAsync(row.Task.Id, CancellationToken.None);
+                notice.Text = conflicts.Length == 0 ? "The agents' integration branch was merged into your project checkout." : "Merge aborted; these files conflict with your checkout: " + string.Join(", ", conflicts) + ". Resolve them in git or ask an agent to reconcile.";
+            }
+            catch (IOException ex) { notice.Text = "Merge failed: " + ex.Message; }
+            finally { merge.IsEnabled = true; }
+        };
+        dropWorktrees.Click += async (_, _) =>
+        {
+            if (list.SelectedItem is not TaskRow row) return;
+            dropWorktrees.IsEnabled = false;
+            try { await collaborationStore.RemoveWorktreesAsync(row.Task.Id, CancellationToken.None); notice.Text = "Agent worktrees and their branches were removed. Unmerged changes are gone."; Refresh(true); }
+            catch (IOException ex) { notice.Text = "Could not remove worktrees: " + ex.Message; }
+            finally { dropWorktrees.IsEnabled = true; }
+        };
         packet.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
@@ -160,12 +183,18 @@ public partial class MainWindow
             stop.IsEnabled = task is not null && workers.TryGetValue(task.RoomId, out var live) && live.Hub.TaskId == task.Id && task.State == WorkState.Running;
             resume.IsEnabled = task is not null && rooms.Any(r => r.Id == task.RoomId && !r.IsArchived);
             create.IsEnabled = !current.IsArchived;
+            WorktreeLayout? layout = null;
+            if (task is not null) try { layout = collaborationStore.Worktrees(task.Id); } catch (IOException) { }
+            merge.IsEnabled = dropWorktrees.IsEnabled = layout is not null && task!.State != WorkState.Running;
+            merge.Visibility = dropWorktrees.Visibility = layout is not null ? Visibility.Visible : Visibility.Collapsed;
             details.Text = task is null ? "Send a task in the conversation or choose New task." :
                 $"Objective: {task.Objective}\nState: {task.State}\nOwner: {(task.Owner.Length == 0 ? "No active worker" : task.Owner)}\nUpdated: {task.Updated:g}\n{task.Reason}\n\nTask notes:\n" +
                 string.Join("\n\n", task.Notes.Select(n => $"{n.Time:g} · {n.Text}")) + "\n\nLatest agent reports:\n" +
                 string.Join("\n\n", task.LatestReplies.Select(p => p.Key + ": " + p.Value));
             if (task is not null)
             {
+                if (layout is not null)
+                    details.Text += $"\n\nAgent worktrees (project folder unchanged until you merge):\nCodex: {layout.Codex} on {layout.BranchFor(Agent.Codex)}\nClaude Code: {layout.Claude} on {layout.BranchFor(Agent.Claude)}\nMerged result: {layout.Integration} on {layout.IntegrationBranch} (from commit {layout.BaseCommit[..Math.Min(8, layout.BaseCommit.Length)]})";
                 // Resume handles: the same native threads can be reopened in each CLI.
                 var room = rooms.FirstOrDefault(r => r.Id == task.RoomId);
                 details.Text += "\n\nNative sessions (reopen the same thread in the CLI):\n" +
@@ -180,7 +209,7 @@ public partial class MainWindow
                 catch (IOException ex) { details.Text += "\nCollaboration history unavailable: " + ex.Message; }
             }
         }
-        bool refreshing = false; string? shown = null;
+        bool refreshing = false;
         void Refresh(bool force = false)
         {
             // The per-second tick rebuilds the list and rereads the ledger only when a task actually changed.

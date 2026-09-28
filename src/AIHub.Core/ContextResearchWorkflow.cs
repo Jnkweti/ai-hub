@@ -7,7 +7,7 @@ internal static class ContextResearchWorkflow
         Action<AgentEvent> emit, Action<string, string, string> dispatch, CancellationToken token)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var workspace = store.Read(claim.TaskId).Workspace;
+        var workspace = CollaborationStore.Root(store.Read(claim.TaskId)); // The integration worktree when agents are isolated.
         foreach (var assignment in request.Content.Assignments!)
             store.Assign(claim, new(request.Envelope.MessageId + "-" + assignment.Agent, assignment.Agent, "research",
                 string.Join("; ", assignment.Scope.Focus), [request.Envelope.MessageId], assignment.Scope,

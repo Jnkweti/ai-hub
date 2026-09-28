@@ -124,6 +124,8 @@ public partial class MainWindow : Window
         if (room.SessionOptions != signature) { room.CodexSession = null; room.ClaudeSession = null; room.SessionOptions = signature; }
         var codexOptions = new AgentOptions(room.Workspace, allowEdits, settings.CodexModel, settings.CodexPath);
         var claudeOptions = new AgentOptions(room.Workspace, allowEdits, settings.ClaudeModel, settings.ClaudePath);
+        HubCoordinator self = null!; // Structured clients ask the coordinator for the agent's worktree, if any, when they are created.
+        string Cwd(Agent agent) => self.WorktreeFor(agent) ?? room.Workspace;
         var coordinator = new HubCoordinator(agent => agent == Agent.Codex
             ? new CodexClient(codexOptions, room.CodexSession)
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
@@ -133,17 +135,18 @@ public partial class MainWindow : Window
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
             CollaborationWorkflowDirectory = Path.Combine(AppContext.BaseDirectory, "plugins", "ai-hub-collaboration"),
-            MidTurnPush = settings.MidTurnPush,
+            MidTurnPush = settings.MidTurnPush, IsolateWorktrees = settings.IsolateAgentWorktrees,
             CollaborationFactory = (agent, connection) => agent == Agent.Codex
-                ? new CodexClient(codexOptions with { Collaboration = connection }, room.CodexSession)
-                : new ClaudeClient(claudeOptions with { Collaboration = connection, MidTurnPush = settings.MidTurnPush }, room.ClaudeSession),
+                ? new CodexClient(codexOptions with { Workspace = Cwd(agent), Collaboration = connection }, room.CodexSession)
+                : new ClaudeClient(claudeOptions with { Workspace = Cwd(agent), Collaboration = connection, MidTurnPush = settings.MidTurnPush }, room.ClaudeSession),
             ContextResearchFactory = (agent, connection) => agent == Agent.Codex
-                ? new CodexClient(codexOptions with { AllowEdits = false, Collaboration = connection })
-                : new ClaudeClient(claudeOptions with { AllowEdits = false, Collaboration = connection }),
+                ? new CodexClient(codexOptions with { Workspace = Cwd(agent), AllowEdits = false, Collaboration = connection })
+                : new ClaudeClient(claudeOptions with { Workspace = Cwd(agent), AllowEdits = false, Collaboration = connection }),
             PreparationFactory = agent => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { AllowEdits = false, PreparationOnly = true })
                 : new ClaudeClient(claudeOptions with { AllowEdits = false, PreparationOnly = true })
         };
+        self = coordinator;
         var worker = new RoomWorker(room, coordinator); workers.Add(room.Id, worker);
         activity = worker.Activity; streaming = worker.Streaming;
         hub = coordinator;
@@ -594,7 +597,7 @@ public partial class MainWindow : Window
         var window = new SettingsWindow(settings) { Owner = this };
         if (window.ShowDialog() != true) return;
         var updated = window.Settings;
-        var connectionsChanged = settings.CodexPath != updated.CodexPath || settings.ClaudePath != updated.ClaudePath || settings.CodexModel != updated.CodexModel || settings.ClaudeModel != updated.ClaudeModel || settings.AllowEdits != updated.AllowEdits || settings.MidTurnPush != updated.MidTurnPush;
+        var connectionsChanged = settings.CodexPath != updated.CodexPath || settings.ClaudePath != updated.ClaudePath || settings.CodexModel != updated.CodexModel || settings.ClaudeModel != updated.ClaudeModel || settings.AllowEdits != updated.AllowEdits || settings.MidTurnPush != updated.MidTurnPush || settings.IsolateAgentWorktrees != updated.IsolateAgentWorktrees;
         switching = true; UpdateConversationControls();
         try
         {
@@ -602,7 +605,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();

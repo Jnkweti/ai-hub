@@ -204,7 +204,7 @@ public sealed partial class CollaborationStore
     {
         var snapshot = memory.WithClaim(claim, task =>
         {
-            lock (gate) return (Document: Copy(Load(task)), task.Workspace, task.Objective);
+            lock (gate) { var loaded = Load(task); return (Document: Copy(loaded), Workspace: Root(loaded), task.Objective); }
         });
         // Hash outside state locks so progress inspection and cancellation remain responsive.
         token.ThrowIfCancellationRequested();

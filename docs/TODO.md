@@ -37,7 +37,7 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
   challenge assumptions, selectable per review request. `plugins/ai-hub-collaboration`. S.
 - [x] **Per-phase usage totals**. Sum the Usage events per provider per phase and show them in the Tasks window. S.
 
-## Batch 3 — bigger changes, one release each
+## Batch 3 — bigger changes, one release each (shipped as 0.20.0, 0.21.0 and 0.22.0)
 
 - [x] **Mid-turn push** (from AgentBridge, rennerdo30/agent-bridge, hcom). Shipped as 0.20.0, see `MIDTURN-PUSH-0.20.0.md`. Deliver new stream events into Claude's
   running turn through the bridge as MCP notifications; Codex keeps queueing to the next turn boundary. Claude's
@@ -45,7 +45,7 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
 - [x] **Bounded recovery loops** (from claude_codex_bridge). Shipped as 0.21.0, see `RECOVERY-0.21.0.md`. Restart a crashed provider process inside a phase with
   backoff (30 s to 30 min, circuit-break after six) and resume its session, instead of failing the run on the first
   crash. M.
-- [ ] **Per-agent worktrees** (from agent-bridge-mesh, rennerdo30 delegate). Optional isolated git worktree per agent
+- [x] **Per-agent worktrees** (from agent-bridge-mesh, rennerdo30 delegate). Shipped as 0.22.0, see `WORKTREES-0.22.0.md`. Optional isolated git worktree per agent
   for edit-enabled tasks; the host merges into an integration branch and shows conflicts explicitly. L.
 
 ## Carried over from the design review

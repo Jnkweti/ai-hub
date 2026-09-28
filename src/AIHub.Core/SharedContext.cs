@@ -75,7 +75,7 @@ public sealed partial class CollaborationStore
             foreach (var path in a.Scope.Files)
             {
                 CollaborationPaths.Validate(task.Workspace, path);
-                var full = Path.Combine(task.Workspace, path);
+                var full = Path.Combine(Root(document), path);
                 if (!File.Exists(full) && !Directory.Exists(full)) throw new CollaborationValidationException("Research scope does not exist: " + path);
             }
         }
@@ -106,7 +106,7 @@ public sealed partial class CollaborationStore
                 throw new CollaborationValidationException("Research session is closed or does not match its host-bound identity.");
         }
         ValidateSession();
-        var view = memory.WithClaim(session.Claim, task => { lock (gate) return (task.Workspace, Document: Copy(Load(task))); });
+        var view = memory.WithClaim(session.Claim, task => { lock (gate) { var loaded = Load(task); return (Workspace: Root(loaded), Document: Copy(loaded)); } });
         if (tool is "get_shared_context" or "read_context_source")
         {
             var response = tool == "read_context_source" ? ReadContextSource(view.Document, args) : ContextPage(new WorkTask { Workspace = view.Workspace }, view.Document, args, token);
@@ -189,7 +189,7 @@ public sealed partial class CollaborationStore
     public async Task<string> ContextReportAsync(string taskId, CancellationToken token)
     {
         var document = Read(taskId);
-        var captures = new ContextSnapshotBatch(document.Workspace, token);
+        var captures = new ContextSnapshotBatch(Root(document), token);
         var report = new StringBuilder("SHARED TASK CONTEXT\n\nAgent findings with file references. File freshness does not independently verify claims or runtime behavior.\n");
         if (document.ContextSections.Count == 0) report.AppendLine("\nNo research findings have been published yet.");
         foreach (var request in document.Entries.Where(e => e.SenderSucceeded && e.Message.Content.Type == "context_request"))
