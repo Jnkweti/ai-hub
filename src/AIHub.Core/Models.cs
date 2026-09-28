@@ -48,6 +48,8 @@ public record AgentOptions(string Workspace, bool AllowEdits, string Model = "",
 {
     public CollaborationMcpHost? Collaboration { get; init; }
     public bool PreparationOnly { get; init; }
+    /// <summary>Claude Code only: load the AI Hub MCP server as a channel so host notifications reach a running turn.</summary>
+    public bool MidTurnPush { get; init; }
 }
 
 public interface IAgentClient : IAsyncDisposable
@@ -75,6 +77,8 @@ public class HubSettings
     public bool ShowActivityDiagnostics { get; set; }
     public bool CollectLocalDiagnostics { get; set; } = true;
     public int TurnInactivitySeconds { get; set; } = HubCoordinator.DefaultTurnInactivitySeconds;
+    /// <summary>Experimental: deliver your messages into Claude Code's running turn (requires a Claude Code build with channels).</summary>
+    public bool MidTurnPush { get; set; }
     /// <summary>Providers over their usage limit, by agent name, with the moment they become usable again.</summary>
     public Dictionary<string, DateTimeOffset> ProviderUnavailableUntil { get; set; } = [];
 }

@@ -262,6 +262,7 @@ internal sealed class ProbeWire : IAsyncDisposable
         if (response["error"] is { } error) throw new IOException(error.ToJsonString());
         return response["result"]!;
     }
+    public Task<string?> ReadLine(CancellationToken token) => process.StandardOutput.ReadLineAsync(token).AsTask();
     public async Task<JsonNode> Tool(string name, JsonNode input, CancellationToken token)
     {
         var result = await Call("tools/call", new JsonObject { ["name"] = name, ["arguments"] = input }, token);

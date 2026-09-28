@@ -55,6 +55,8 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(reduced); Description("Keep the interface still: disable transitions, handoff motion, and status pulses.");
         var diagnostics = new CheckBox { Name = "LocalDiagnosticsToggle", Content = "Collect local diagnostics", IsChecked = Settings.CollectLocalDiagnostics, Margin = new(0,8,0,0) };
         panel.Children.Add(diagnostics); Description("Keep bounded local error and activity metadata, excluding chat and tool text. Reviews run only when you request them. Turning this off stops collection and retains existing findings.");
+        var push = new CheckBox { Name = "MidTurnPushToggle", Content = "Deliver my messages to Claude Code mid-turn (experimental)", IsChecked = Settings.MidTurnPush, Margin = new(0,8,0,0) };
+        panel.Children.Add(push); Description("While Claude Code is working, a message you send reaches it immediately through a channel instead of waiting for its next turn. Codex always sees messages at its next turn. Needs a Claude Code build with channels; saving checks that before enabling.");
 
         var advancedPanel = new StackPanel { Margin = new(0,12,0,0) };
         TextBox Field(string label, string value)
@@ -103,10 +105,28 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(new Expander { Name = "AdvancedSettings", Header = "Advanced connections and models", Content = advancedPanel, Foreground = Foreground, Margin = new(0,12,0,0) });
         root.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
-        save.Click += (_, _) =>
+        save.Click += async (_, _) =>
         {
             if (!int.TryParse(rounds.Text,out var count) || count is < 1 or > 50) { status.Text = "Enter a whole number between 1 and 50 for automatic rounds."; rounds.Focus(); rounds.SelectAll(); return; }
             if (!int.TryParse(idle.Text, out var seconds) || seconds is < 30 or > 3600) { status.Text = "Enter a whole number between 30 and 3600 seconds for the inactivity limit."; idle.Focus(); idle.SelectAll(); return; }
+            if (push.IsChecked == true && !Settings.MidTurnPush)
+            {
+                // Enabling is refused unless this Claude Code build accepts the channels flag; otherwise every structured turn would fail to start.
+                save.IsEnabled = false; status.Text = "Checking Claude Code for channel support…";
+                try
+                {
+                    var path = JsonProcess.FindExecutable(claude.Text.Trim(), "claude");
+                    using var process = Process.Start(new ProcessStartInfo(path) { ArgumentList = { ClaudeClient.ChannelFlag, "server:ai_hub", "--version" }, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    var error = BoundedText.ReadAsync(process.StandardError, 16000, timeout.Token); var output = BoundedText.ReadAsync(process.StandardOutput, 16000, timeout.Token);
+                    try { await Task.WhenAll(output, error, process.WaitForExitAsync(timeout.Token)); }
+                    finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                    if (process.ExitCode != 0) { status.Text = "This Claude Code build does not accept the channels flag, so mid-turn delivery stays off: " + (await error).Trim(); push.IsChecked = false; return; }
+                }
+                catch (Exception ex) { status.Text = "Could not check Claude Code for channel support: " + ex.Message; push.IsChecked = false; return; }
+                finally { save.IsEnabled = true; }
+            }
+            Settings.MidTurnPush = push.IsChecked == true;
             Settings.TurnInactivitySeconds = seconds;
             Settings.CodexPath = codex.Text.Trim(); Settings.ClaudePath = claude.Text.Trim();
             Settings.CodexModel = codexModel.Text.Trim(); Settings.ClaudeModel = claudeModel.Text.Trim();

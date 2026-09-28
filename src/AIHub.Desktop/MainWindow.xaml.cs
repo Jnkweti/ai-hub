@@ -133,9 +133,10 @@ public partial class MainWindow : Window
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
             CollaborationWorkflowDirectory = Path.Combine(AppContext.BaseDirectory, "plugins", "ai-hub-collaboration"),
+            MidTurnPush = settings.MidTurnPush,
             CollaborationFactory = (agent, connection) => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { Collaboration = connection }, room.CodexSession)
-                : new ClaudeClient(claudeOptions with { Collaboration = connection }, room.ClaudeSession),
+                : new ClaudeClient(claudeOptions with { Collaboration = connection, MidTurnPush = settings.MidTurnPush }, room.ClaudeSession),
             ContextResearchFactory = (agent, connection) => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { AllowEdits = false, Collaboration = connection })
                 : new ClaudeClient(claudeOptions with { AllowEdits = false, Collaboration = connection }),
@@ -593,7 +594,7 @@ public partial class MainWindow : Window
         var window = new SettingsWindow(settings) { Owner = this };
         if (window.ShowDialog() != true) return;
         var updated = window.Settings;
-        var connectionsChanged = settings.CodexPath != updated.CodexPath || settings.ClaudePath != updated.ClaudePath || settings.CodexModel != updated.CodexModel || settings.ClaudeModel != updated.ClaudeModel || settings.AllowEdits != updated.AllowEdits;
+        var connectionsChanged = settings.CodexPath != updated.CodexPath || settings.ClaudePath != updated.ClaudePath || settings.CodexModel != updated.CodexModel || settings.ClaudeModel != updated.ClaudeModel || settings.AllowEdits != updated.AllowEdits || settings.MidTurnPush != updated.MidTurnPush;
         switching = true; UpdateConversationControls();
         try
         {
@@ -601,7 +602,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();

@@ -410,6 +410,42 @@ internal static class HardeningTests
             dispatch.Abort("done"); f.Memory.End(claim, WorkState.Ready, "done");
             return Task.CompletedTask;
         });
+        // 0.20.0: mid-turn push.
+        await test("the host pushes a notification through the bridge to an initialized connection", async () =>
+        {
+            using var f = new CollaborationTests.Fixture(); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await using var host = new CollaborationMcpHost(f.Probe, Agent.Codex, CollaborationTests.Bridge, timeout.Token); host.BindSession("test-session");
+            Check(await host.PushAsync("notifications/claude/channel", new JsonObject { ["content"] = "nobody home" }) == 0, "A push with no connection reported a delivery");
+            await using var wire = await ProbeWire.Connect(host, f.DirectoryPath, timeout.Token);
+            var delivered = 0; var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (delivered == 0 && DateTime.UtcNow < deadline) { delivered = await host.PushAsync("notifications/claude/channel", new JsonObject { ["content"] = "you have mail", ["meta"] = new JsonObject { ["source"] = "ai_hub" } }); if (delivered == 0) await Task.Delay(50); }
+            Check(delivered == 1, "Push did not reach the initialized connection");
+            var line = await wire.ReadLine(timeout.Token);
+            var notification = JsonNode.Parse(line!)!;
+            Check(notification.Str("method") == "notifications/claude/channel" && notification["params"].Str("content") == "you have mail" && notification["id"] is null, "Notification frame wrong: " + line);
+            var context = await wire.Tool("get_task_context", new JsonObject(), timeout.Token); // Responses still flow after a push.
+            Check(context.Str("task_id") == f.Claim.TaskId, "Tool call failed after a push");
+        });
+        await test("a user message sent while Claude Code speaks is pushed into that turn when enabled, and only then", async () =>
+        {
+            foreach (var enabled in new[] { true, false })
+            {
+                using var f = new CollaborationRoutingTests.Fixture(); string? pushed = null;
+                var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var interjected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await using var hub = f.Hub(async (agent, host, _, _, token) =>
+                {
+                    host.Pushed += (_, p) => pushed = p.Str("content");
+                    started.TrySetResult(); await interjected.Task.WaitAsync(token);
+                    CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return "Checked, including the tests.";
+                });
+                hub.MidTurnPush = enabled;
+                var run = hub.SubmitAsync("Review the parser", "Claude"); await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                Check(await hub.InterjectAsync("also check the tests"), "Interjection was not accepted during the turn");
+                await Task.Delay(200); interjected.TrySetResult(); await run; await f.Finished();
+                Check(enabled ? pushed is not null && pushed.Contains("also check the tests") && pushed.Contains("user authority") : pushed is null, $"Mid-turn push enabled={enabled} pushed={pushed is not null}");
+                Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "user_message" && e.Text == "also check the tests"), "The interjection was not recorded in the stream after the turn");
+            }
+        });
     }
 }
 

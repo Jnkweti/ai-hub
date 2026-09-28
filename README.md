@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md).
 
+Version **0.20.0** adds experimental mid-turn push: with the setting on, a message you send while Claude Code is working reaches it inside that turn through a channel, verified against your Claude Code build before enabling. See [mid-turn push 0.20.0](docs/MIDTURN-PUSH-0.20.0.md).
+
 Version **0.19.0** ships the second batch: @mention addressing anywhere in a message, with a message that mentions both agents giving each its own part; resume commands for each native session in the Tasks window; an adversarial review workflow selectable per review; and per-phase provider usage totals. See [peer features 0.19.0](docs/PEER-FEATURES-0.19.0.md).
 
 Version **0.18.0** ships the first batch from that list: an inactivity watchdog that stops a silent turn, quota-aware scheduling that remembers when a provider's limit resets and skips it until then, tiered delta prompts, edit collision detection between the two agents, a phase completion gate that names what is left outstanding, a disputed finding disposition, and a review packet export. See [peer features 0.18.0](docs/PEER-FEATURES-0.18.0.md).

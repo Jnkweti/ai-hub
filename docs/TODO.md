@@ -39,7 +39,7 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
 
 ## Batch 3 — bigger changes, one release each
 
-- [ ] **Mid-turn push** (from AgentBridge, rennerdo30/agent-bridge, hcom). Deliver new stream events into Claude's
+- [x] **Mid-turn push** (from AgentBridge, rennerdo30/agent-bridge, hcom). Shipped as 0.20.0, see `MIDTURN-PUSH-0.20.0.md`. Deliver new stream events into Claude's
   running turn through the bridge as MCP notifications; Codex keeps queueing to the next turn boundary. Claude's
   channel feature is a research preview behind a flag, so ship behind a setting. M to L.
 - [ ] **Bounded recovery loops** (from claude_codex_bridge). Restart a crashed provider process inside a phase with

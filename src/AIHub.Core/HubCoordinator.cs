@@ -62,7 +62,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     public Func<Agent, IAgentClient>? PreparationFactory { get; set; }
     // Turn state is tagged with the run epoch so a stopped run's late cleanup can never clear the next run's state.
     private sealed record SpeakingTurn(int Epoch, Agent Agent);
-    private sealed record LiveDispatch(int Epoch, CollaborationDispatch Dispatch);
+    private sealed record LiveDispatch(int Epoch, CollaborationDispatch Dispatch, CollaborationMcpHost Host, Agent Agent);
+    /// <summary>Experimental: a user message sent while Claude Code is speaking is pushed into that turn through its channel; Codex sees it at its next turn.</summary>
+    public bool MidTurnPush { get; set; }
     private volatile SpeakingTurn? speaking;
     private Agent? interruptedSpeaker;
     private volatile LiveDispatch? currentDispatch;
@@ -81,7 +83,22 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
         try
         {
             if (CollaborationStore is null || running is not { IsCompleted: false } || active is null || active.IsCancellationRequested) return false;
-            interjections.Enqueue(prompt); return true;
+            interjections.Enqueue(prompt);
+            if (MidTurnPush && currentDispatch is { } live && live.Epoch == epoch && live.Agent == Agent.Claude)
+            {
+                // Delivered into the running turn as well; the turn loop still records it as a stream event afterwards.
+                var payload = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["content"] = "USER MESSAGE (joined the live stream while you were working; it carries user authority and will also appear in your next turn's event list):\n" + prompt,
+                    ["meta"] = new System.Text.Json.Nodes.JsonObject { ["source"] = "ai_hub", ["author"] = "You", ["kind"] = "user_message" }
+                };
+                _ = Task.Run(async () =>
+                {
+                    try { if (await live.Host.PushAsync("notifications/claude/channel", payload) > 0) Event?.Invoke(new(Agent.Claude, EventKind.Status, "Your message was delivered to Claude Code mid-turn")); }
+                    catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { Event?.Invoke(new(Agent.Claude, EventKind.Status, "Mid-turn delivery failed; the message waits for the next turn: " + ex.Message)); }
+                });
+            }
+            return true;
         }
         finally { transitions.Release(); }
     }
@@ -481,7 +498,6 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     CollaborationStore.Assign(claim, new(dispatch.Id, next, incomingId is null ? (turns == 0 ? "contribution" : "contribution check") : "peer assignment",
                         dispatch.Incoming?.Content.RequestedAction ?? promptReference, incomingId is null ? [] : [incomingId],
                         dispatch.Incoming?.Content.Scope ?? new([], []), "Publish one terminal contribution or a quiet pass; claims are not host certification.", claim.Generation, "running", DateTimeOffset.UtcNow));
-                    currentDispatch = new(runEpoch, dispatch);
                     var checkContribution = previousAgent is not null && incomingId is null;
                     CollaborationMessage? terminal = null;
                     AgentReply? turnReply = null;
@@ -494,6 +510,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                             hosts[next] = host;
                         }
                         else host.Attach(dispatch, dispatch.Id);
+                        currentDispatch = new(runEpoch, dispatch, host, next);
                         var repair = contextReady ? "Both researchers saved findings supplied in your common context. Combine them and continue the user's task. Retrieve only omitted detail needed for a specific gap. Do not request another split or repeat their scans." : "";
                         contextReady = false;
                         for (var attempt = 0; ; attempt++)

@@ -23,6 +23,29 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
     private string? sessionId;
     private int calls, repairs;
     private int disposed;
+    // Initialized connections (normally one per resident session) that can receive server-to-client notifications.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (StreamWriter Writer, SemaphoreSlim Gate)> live = new();
+    private int connectionIds;
+    internal event Action<string, JsonNode?>? Pushed; // Test observability.
+    /// <summary>
+    /// Sends a JSON-RPC notification to every initialized connection and returns how many received it. Claude Code
+    /// surfaces <c>notifications/claude/channel</c> inside a running turn when started with its channels flag; other
+    /// clients ignore unknown notifications. A failed write means that connection is gone.
+    /// </summary>
+    public async Task<int> PushAsync(string method, JsonNode? parameters)
+    {
+        var line = new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method, ["params"] = parameters?.DeepClone() }.ToJsonString(Wire);
+        var delivered = 0;
+        foreach (var (id, connection) in live.ToArray())
+        {
+            await connection.Gate.WaitAsync(life.Token).ConfigureAwait(false);
+            try { await connection.Writer.WriteLineAsync(line.AsMemory(), life.Token).ConfigureAwait(false); delivered++; }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { live.TryRemove(id, out _); }
+            finally { connection.Gate.Release(); }
+        }
+        Pushed?.Invoke(method, parameters);
+        return delivered;
+    }
     public string DispatchId => dispatchId;
     public bool StartFreshSession { get; init; }
     public string? ResumeSessionId { get; init; }
@@ -122,6 +145,15 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
         if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(lines.Current), Encoding.UTF8.GetBytes(secret))) return;
         await writer.WriteLineAsync("OK".AsMemory(), life.Token).ConfigureAwait(false);
         var initialized = false; var ready = false;
+        using var gate = new SemaphoreSlim(1, 1); var connectionId = Interlocked.Increment(ref connectionIds);
+        async Task Write(string line)
+        {
+            await gate.WaitAsync(life.Token).ConfigureAwait(false);
+            try { await writer.WriteLineAsync(line.AsMemory(), life.Token).ConfigureAwait(false); }
+            finally { gate.Release(); }
+        }
+        try
+        {
         while (await lines.MoveNextAsync().ConfigureAwait(false))
         {
             JsonObject? request;
@@ -140,7 +172,10 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
             { await WriteError(id, -32600, "Invalid JSON-RPC request."); continue; }
             var method = request.Str("method");
             if (id is null)
-            { if (method == "notifications/initialized" && initialized) ready = true; continue; }
+            {
+                if (method == "notifications/initialized" && initialized && !ready) { ready = true; live[connectionId] = (writer, gate); }
+                continue;
+            }
             JsonNode? result = null;
             if (method == "initialize" && !initialized)
             {
@@ -161,10 +196,12 @@ public sealed class CollaborationMcpHost : IAsyncDisposable
                 result = InvokeTool(p.Str("name"), p?["arguments"]);
             }
             else { await WriteError(id, -32601, "Unsupported method."); continue; }
-            await writer.WriteLineAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString(Wire).AsMemory(), life.Token).ConfigureAwait(false);
+            await Write(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString(Wire)).ConfigureAwait(false);
         }
-        async Task WriteError(JsonNode? id, int code, string message) => await writer.WriteLineAsync(new JsonObject
-        { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = JsonSerializer.SerializeToNode(new { code, message }) }.ToJsonString(Wire).AsMemory(), life.Token).ConfigureAwait(false);
+        }
+        finally { live.TryRemove(connectionId, out _); }
+        async Task WriteError(JsonNode? id, int code, string message) => await Write(new JsonObject
+        { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = JsonSerializer.SerializeToNode(new { code, message }) }.ToJsonString(Wire)).ConfigureAwait(false);
     }
     internal JsonNode InvokeTool(string name, JsonNode? arguments)
     {

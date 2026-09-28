@@ -5,6 +5,8 @@ namespace AIHub.Core;
 
 public sealed class ClaudeClient(AgentOptions options, string? sessionId = null) : IAgentClient
 {
+    /// <summary>Claude Code's research-preview flag that loads an MCP server as a channel.</summary>
+    public const string ChannelFlag = "--dangerously-load-development-channels";
     public Agent Agent => Agent.Claude;
     public string? SessionId { get; private set; } = options.Collaboration?.StartFreshSession == true ? null : options.Collaboration?.ResumeSessionId ?? sessionId;
     public event Action<AgentEvent>? Event;
@@ -33,8 +35,11 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
         if (options.PreparationOnly) args.AddRange(["--tools", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}"]);
         else if (!options.AllowEdits) args.AddRange(["--tools", "Read,Glob,Grep,AskUserQuestion"]);
         if (options.Collaboration is { } collaboration)
+        {
             args.AddRange(["--strict-mcp-config", "--mcp-config", collaboration.ClaudeConfiguration(),
                 "--allowedTools", "mcp__ai_hub__get_task_context,mcp__ai_hub__submit_message,mcp__ai_hub__get_messages,mcp__ai_hub__get_evidence,mcp__ai_hub__mark_addressed,mcp__ai_hub__get_shared_context,mcp__ai_hub__publish_context,mcp__ai_hub__get_context_records,mcp__ai_hub__read_context_record,mcp__ai_hub__read_context_source,mcp__ai_hub__claim_work,mcp__ai_hub__complete_work,mcp__ai_hub__get_work,mcp__ai_hub__get_events"]);
+            if (options.MidTurnPush) args.AddRange([ChannelFlag, "server:ai_hub"]); // The host's notifications then surface inside a running turn.
+        }
         else if (!options.AllowEdits && !options.PreparationOnly) args.AddRange(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}"]);
         if (SessionId is not null) args.Add("--resume=" + SessionId);
         if (!string.IsNullOrWhiteSpace(options.Model)) args.AddRange(["--model", options.Model]);
