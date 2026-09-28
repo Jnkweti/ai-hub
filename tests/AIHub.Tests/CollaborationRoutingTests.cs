@@ -47,6 +47,7 @@ internal static class CollaborationRoutingTests
         private HubCoordinator Track(HubCoordinator hub) { hub.Event += e => { if (e.Kind == EventKind.Error) LastError = e.Detail; }; return hub; }
         public HubCoordinator Hub(Func<Agent, CollaborationMcpHost, int, string, CancellationToken, Task<string>> respond) => Track(new(_ => throw new Exception("Legacy factory used"))
         {
+            AllowFollowUpContributions = false, // Individual routing tests opt into voluntary follow-ups when relevant.
             TaskMemory = Memory, TaskId = TaskId, CollaborationStore = Store, CollaborationBridgePath = CollaborationTests.Bridge,
             CollaborationFactory = (agent, host) => new StructuredFake(agent, host, async (prompt, token) =>
             {

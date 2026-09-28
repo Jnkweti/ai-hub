@@ -34,7 +34,7 @@ public sealed class SettingsWindow : Window
         var panel = new StackPanel { Margin = new(0,0,12,0) };
         void Description(string text) => panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = Theme.Brush("MutedBrush"), FontSize = 13, Margin = new(0,7,0,16) });
         panel.Children.Add(new TextBlock { Text = "Collaboration guard", FontWeight = FontWeights.SemiBold, FontSize = 16 });
-        Description("Agents answer greetings once, pause when finished or waiting for you, and stop repeated replies. A round limit catches other loops.");
+        Description("Auto collaborate lets agents contribute again when a peer adds something useful. A quiet pass, repeated reply, request for your input, or round limit ends the exchange.");
         var roundRow = new StackPanel { Orientation = Orientation.Horizontal };
         var rounds = new TextBox { Name = "MaxRoundsInput", Text = Math.Clamp(Settings.MaxAutoRounds,1,50).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         roundRow.Children.Add(rounds); roundRow.Children.Add(new TextBlock { Text = "automatic rounds before pausing", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(roundRow);
@@ -49,6 +49,8 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(edits); Description("Off: read and discuss files. On: edit the selected project, taking turns. Provider approval requests appear in AI Hub.");
         var reduced = new CheckBox { Name = "ReduceMotionToggle", Content = "Reduce motion", IsChecked = Settings.ReduceMotion, Margin = new(0,8,0,0) };
         panel.Children.Add(reduced); Description("Keep the interface still: disable transitions, handoff motion, and status pulses.");
+        var diagnostics = new CheckBox { Name = "LocalDiagnosticsToggle", Content = "Collect local diagnostics", IsChecked = Settings.CollectLocalDiagnostics, Margin = new(0,8,0,0) };
+        panel.Children.Add(diagnostics); Description("Keep bounded local error and activity metadata, excluding chat and tool text. Reviews run only when you request them. Turning this off stops collection and retains existing findings.");
 
         var advancedPanel = new StackPanel { Margin = new(0,12,0,0) };
         TextBox Field(string label, string value)
@@ -104,6 +106,7 @@ public sealed class SettingsWindow : Window
             Settings.CodexModel = codexModel.Text.Trim(); Settings.ClaudeModel = claudeModel.Text.Trim();
             Settings.AllowEdits = edits.IsChecked == true; Settings.ReduceMotion = reduced.IsChecked == true; Settings.MaxAutoRounds = count;
             Settings.StatusInspector = inspector.SelectedIndex == 1 ? Agent.Claude : Agent.Codex;
+            Settings.CollectLocalDiagnostics = diagnostics.IsChecked == true;
             DialogResult = true;
         };
     }

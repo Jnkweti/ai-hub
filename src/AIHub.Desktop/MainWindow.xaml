@@ -59,6 +59,7 @@
           </Button>
          </Grid>
          <Button x:Name="TasksButton" Content="Tasks and notes" Click="Tasks_Click" Padding="8,7" FontSize="12" Margin="0,8,0,0" AutomationProperties.Name="Project tasks and notes"/>
+         <Button x:Name="AuditButton" Content="Local diagnostics" Click="Audit_Click" Padding="8,7" FontSize="12" Margin="0,8,0,0"/>
          <TextBlock x:Name="TaskSummaryLabel" Text="No active tasks" FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0"/>
         </StackPanel>
        </Border>

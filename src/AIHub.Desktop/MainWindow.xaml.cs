@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, RoomWorker> workers = [];
     private readonly TaskMemory taskMemory;
     private readonly CollaborationStore collaborationStore;
+    private readonly RuntimeAudit audit;
     private sealed class RoomWorker(Room room, HubCoordinator hub)
     {
         public Room Room { get; } = room;
@@ -51,6 +52,8 @@ public partial class MainWindow : Window
         rooms = new(store.Load("rooms.json", () => new List<Room>(), SavedStateRepair.Rooms));
         taskMemory = new(store);
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true);
+        audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
+        if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
         // Native requests cannot survive an application restart.
         foreach (var message in rooms.SelectMany(r => r.Messages))
             if (message.Input is { Status: InputStatus.Pending } input) input.Status = InputStatus.Cancelled;
@@ -68,7 +71,7 @@ public partial class MainWindow : Window
         var selected = rooms.FirstOrDefault(r => r.Id == settings.LastRoomId) ?? rooms.FirstOrDefault(r => !r.IsArchived) ?? rooms[0];
         RoomFilter.SelectedIndex = selected.IsArchived ? 1 : 0;
         ready = true; RoomList.SelectedItem = selected; AutoToggle.IsChecked = settings.AutoExchange;
-        saveTimer.Tick += (_, _) => { Save(); RefreshTaskSummary(); }; saveTimer.Start(); Loaded += Window_Loaded;
+        saveTimer.Tick += (_, _) => { Save(); RefreshTaskSummary(); CheckRuntimeAudit(); }; saveTimer.Start(); Loaded += Window_Loaded;
         if (store.RecoveryNotices.Count > 0) StateLabel.Text = string.Join("\n", store.RecoveryNotices);
     }
     private static string FindProjectRoot()
@@ -96,26 +99,27 @@ public partial class MainWindow : Window
     private void Save()
     {
         try { store.Save("settings.json", settings); store.Save("rooms.json", rooms.ToList()); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { StateLabel.Text = "Save failed: " + ex.Message; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { audit.Record(AuditCode.StorageError, current.Id, current.ActiveTaskId, exception: ex); StateLabel.Text = "Save failed: " + ex.Message; }
     }
     private void BuildHub()
     {
         var room = current;
+        var allowEdits = room.EffectiveAllowEdits(settings);
         if (workers.TryGetValue(room.Id, out var existing))
         { hub = existing.Hub; activity = existing.Activity; streaming = existing.Streaming; UpdateWorkspace(); return; }
         // Preserve pre-task native sessions when an older room is simply opened.
         // Its first durable task explicitly establishes the new session boundary.
         var signature = room.ActiveTaskId.Length == 0
-            ? JsonSerializer.Serialize(new { settings.CodexModel, settings.ClaudeModel, settings.AllowEdits, room.Workspace })
-            : JsonSerializer.Serialize(new { settings.CodexModel, settings.ClaudeModel, settings.AllowEdits, room.Workspace, room.ActiveTaskId, CollaborationVersion = 1 });
+            ? JsonSerializer.Serialize(new { settings.CodexModel, settings.ClaudeModel, AllowEdits = allowEdits, room.Workspace })
+            : JsonSerializer.Serialize(new { settings.CodexModel, settings.ClaudeModel, AllowEdits = allowEdits, room.Workspace, room.ActiveTaskId, CollaborationVersion = 1 });
         if (room.SessionOptions != signature) { room.CodexSession = null; room.ClaudeSession = null; room.SessionOptions = signature; }
-        var codexOptions = new AgentOptions(room.Workspace, settings.AllowEdits, settings.CodexModel, settings.CodexPath);
-        var claudeOptions = new AgentOptions(room.Workspace, settings.AllowEdits, settings.ClaudeModel, settings.ClaudePath);
+        var codexOptions = new AgentOptions(room.Workspace, allowEdits, settings.CodexModel, settings.CodexPath);
+        var claudeOptions = new AgentOptions(room.Workspace, allowEdits, settings.ClaudeModel, settings.ClaudePath);
         var coordinator = new HubCoordinator(agent => agent == Agent.Codex
             ? new CodexClient(codexOptions, room.CodexSession)
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
         {
-            AutoExchange = settings.AutoExchange, AllowEdits = settings.AllowEdits, MaxAutoRounds = settings.MaxAutoRounds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
+            AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
             CollaborationWorkflowDirectory = Path.Combine(AppContext.BaseDirectory, "plugins", "ai-hub-collaboration"),
@@ -132,7 +136,13 @@ public partial class MainWindow : Window
         var worker = new RoomWorker(room, coordinator); workers.Add(room.Id, worker);
         activity = worker.Activity; streaming = worker.Streaming;
         hub = coordinator;
-        coordinator.RequestApproval = (approval, token) => AskAsync(approval, room, coordinator, token);
+        coordinator.RequestApproval = async (approval, token) =>
+        {
+            audit.Running(room.Id, coordinator.TaskId, true); audit.Waiting(room.Id, true);
+            try { return await AskAsync(approval, room, coordinator, token); }
+            finally { audit.Waiting(room.Id, false); }
+        };
+        coordinator.Diagnostic += (code, agent) => audit.Record(code, room.Id, coordinator.TaskId, agent);
         bool IsCurrentHub() => ReferenceEquals(current, room) && ReferenceEquals(hub, coordinator) && !room.IsArchived;
         bool IsOwned() => workers.TryGetValue(room.Id, out var live) && ReferenceEquals(live, worker) && !room.IsArchived;
         coordinator.StructuredMessage += message => Dispatcher.BeginInvoke(() =>
@@ -160,7 +170,12 @@ public partial class MainWindow : Window
             if (!IsOwned()) return;
             if (agent == Agent.Codex) room.CodexContext = cursor; else room.ClaudeContext = cursor;
         });
-        coordinator.Event += item => Dispatcher.BeginInvoke(() => { if (IsOwned()) HandleWorkerEvent(worker, item); });
+        coordinator.Event += item =>
+        {
+            audit.Progress(room.Id, coordinator.TaskId, item.Agent, item.Kind);
+            if (item.Kind == EventKind.Error) audit.Record(AuditCode.ProviderError, room.Id, coordinator.TaskId, item.Agent);
+            Dispatcher.BeginInvoke(() => { if (IsOwned()) HandleWorkerEvent(worker, item); });
+        };
         coordinator.State += state => Dispatcher.BeginInvoke(() =>
         {
             if (!IsOwned()) return;
@@ -209,7 +224,7 @@ public partial class MainWindow : Window
     private void UpdateWorkspace()
     {
         WorkspaceLabel.Text = Path.GetFileName(current.Workspace.TrimEnd(Path.DirectorySeparatorChar)); WorkspaceLabel.ToolTip = current.Workspace;
-        ModeLabel.Text = settings.AllowEdits ? "Edits enabled" : "Read only";
+        ModeLabel.Text = current.IsAuditReview ? "Audit review · read only" : current.EffectiveAllowEdits(settings) ? "Edits enabled" : "Read only";
         ProjectStatusButton.ToolTip = $"{settings.StatusInspector} inspects; the other agent reviews when Both agents is selected. Reuses a matching report. This task is read only.";
         RefreshTaskSummary();
     }
@@ -529,6 +544,7 @@ public partial class MainWindow : Window
         {
             if (connectionsChanged) await DisposeAllWorkersAsync();
             settings = updated; Motion.Configure(settings.ReduceMotion);
+            audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
             { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; }
             RefreshMotion();
@@ -866,6 +882,6 @@ public partial class MainWindow : Window
         // Closing must return before Close is called again, including when stopping completes synchronously.
         await Dispatcher.Yield(DispatcherPriority.Background);
         await DisposeAllWorkersAsync();
-        MarkInterrupted(); Save(); closeAllowed = true; Close();
+        MarkInterrupted(); Save(); await audit.DisposeAsync(); closeAllowed = true; Close();
     }
 }

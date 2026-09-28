@@ -73,6 +73,7 @@ public class HubSettings
     public string LastRoomId { get; set; } = "";
     public Agent StatusInspector { get; set; } = Agent.Codex;
     public bool ShowActivityDiagnostics { get; set; }
+    public bool CollectLocalDiagnostics { get; set; } = true;
 }
 
 public class SavedMessage
@@ -94,6 +95,8 @@ public class Room
     public string Title { get; set; } = "New conversation";
     public string Workspace { get; set; } = "";
     public bool IsArchived { get; set; }
+    public bool IsAuditReview { get; set; }
+    public bool EffectiveAllowEdits(HubSettings settings) => settings.AllowEdits && !IsAuditReview;
     public string? CodexSession { get; set; }
     public string? ClaudeSession { get; set; }
     public ConversationCursor CodexContext { get; set; } = new();
