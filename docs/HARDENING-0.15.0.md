@@ -30,4 +30,10 @@ The 1,024 context-record cap remains; manifest pruning removes the more frequent
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
 - Live provider check: not run for this release. The Codex account's usage limit resets on October 3, 2026, and the
   changes are host-side; the 0.14.0 live-stream check is still to be rerun then.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `2b96e68` at a short temporary path built with zero warnings and passed all 209 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.14.0 app was closed (one stopped task, no owner, no child
+  processes): `artifacts\hardening-015-install-result.json` (611 files verified, package hashes match, 9 profile
+  files verified, production data unchanged, backups `before-collaboration-20260928-155040.zip` and
+  `before-collaboration-data-20260928-155040.zip`). Reopened as 0.15.0.0 with 3 rooms and 1 task intact:
+  `artifacts\hardening-015-reopen-result.json`.

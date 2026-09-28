@@ -11,4 +11,5 @@
 - [x] Regression cases added; existing suite passes.
 - [x] Package built and desktop smoke checks passed.
 - [ ] Live provider check (deferred: Codex quota exhausted until October 3, 2026; changes are host-side).
-- [ ] Installed with the user's approval.
+- [x] Clean checkout built and passed the full suite.
+- [x] Installed with the user's approval (September 28, 2026) and reopened as 0.15.0.0.
