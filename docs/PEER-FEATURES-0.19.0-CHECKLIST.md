@@ -6,5 +6,5 @@
 - [x] Per-phase usage totals recorded and shown.
 - [x] Regression cases added; existing suite passes.
 - [x] Package built and desktop smoke checks passed.
-- [ ] Clean checkout built and passed the full suite.
-- [ ] Installed with the user's approval.
+- [x] Clean checkout built and passed the full suite.
+- [x] Installed with the user's approval (September 28, 2026) and reopened as 0.19.0.0.

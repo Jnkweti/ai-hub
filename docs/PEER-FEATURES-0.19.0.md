@@ -20,4 +20,10 @@ The second batch from `docs/TODO.md`: addressing and handles.
 - Package `artifacts\peer-features-019-release` (file version 0.19.0.0) passed `tests\Local-Diagnostics-Smoke.ps1` and
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
 - Live provider check: not run; the Codex account is over its limit until October 3, 2026.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `7ecf4fa` at a short temporary path built with zero warnings and passed all 233 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.18.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\peer-features-019-install-result.json` (612 files verified, package hashes match, 10 profile
+  files verified, production data unchanged, backups `before-collaboration-20260928-185553.zip` and
+  `before-collaboration-data-20260928-185553.zip`). Reopened as 0.19.0.0 with 4 rooms and 1 task intact:
+  `artifacts\peer-features-019-reopen-result.json`.
