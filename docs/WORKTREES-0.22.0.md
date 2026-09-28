@@ -38,4 +38,10 @@ only when you choose to merge. This removes the shared-file race between two age
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
 - Live provider check: not run; the Codex account is over its limit until October 3, 2026. Running the real CLIs
   inside worktrees is a live check for after that date, with the setting enabled.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `6504c5a` at a short temporary path built with zero warnings and passed all 239 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.21.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\worktrees-022-install-result.json` (612 files verified, package hashes match, 10 profile files
+  verified, production data unchanged, backups `before-collaboration-20260928-193123.zip` and
+  `before-collaboration-data-20260928-193123.zip`). Reopened as 0.22.0.0 with 4 rooms and 1 task intact:
+  `artifacts\worktrees-022-reopen-result.json`. The setting ships off; enable it in Settings to use it.
