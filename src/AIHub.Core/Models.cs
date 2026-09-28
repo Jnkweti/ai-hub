@@ -117,6 +117,13 @@ public class Room
     public string LastTask { get; set; } = "";
     public string ActiveTaskId { get; set; } = "";
     public List<SavedMessage> Messages { get; set; } = [];
+    /// <summary>A copy without the transcript, for the rooms index; each room's messages live in their own file.</summary>
+    public Room Header() => new()
+    {
+        Id = Id, Title = Title, Workspace = Workspace, IsArchived = IsArchived, IsAuditReview = IsAuditReview, CodexSession = CodexSession, ClaudeSession = ClaudeSession,
+        CodexContext = CodexContext, ClaudeContext = ClaudeContext, SessionOptions = SessionOptions, Draft = Draft, Target = Target, PauseReason = PauseReason,
+        LastTask = LastTask, ActiveTaskId = ActiveTaskId, Messages = []
+    };
 }
 
 public static class Json

@@ -35,7 +35,7 @@ public static class CollaborationPresentation
     /// </summary>
     public static string ReviewPacket(CollaborationDocument document, WorkTask task, CollaborationSnapshot? current)
     {
-        bool Fresh(string? reference) => current is { Complete: true } && reference is not null && document.Snapshots.TryGetValue(reference, out var s) && s.Complete && s.Fingerprint == current.Fingerprint;
+        bool Fresh(string? reference, CollaborationScope? scope = null) => current is not null && CollaborationStore.Fresh(document, reference, current, scope);
         var objective = task.Objective.Replace('\n', ' '); if (objective.Length > 90) objective = objective[..90] + "…";
         var text = new StringBuilder($"# Review packet · {objective}\n\n");
         text.AppendLine($"Task `{task.Id}` in `{task.Workspace}` · state {task.State}{(task.Owner.Length > 0 ? " · owner " + task.Owner : "")} · updated {task.Updated:g} · phase {task.Generation}");
@@ -56,14 +56,14 @@ public static class CollaborationPresentation
         {
             text.AppendLine($"### {group.Key}\n");
             foreach (var f in group)
-                text.AppendLine($"- `{f.Id}` {f.File}:{f.Line} · reported by {f.Reporter}, last updated by {f.UpdatedBy} · {(f.SnapshotRef is null ? "no snapshot" : Fresh(f.SnapshotRef) ? "fresh against the current snapshot" : "stale: files changed since")}\n  {f.Explanation.Replace('\n', ' ')}");
+                text.AppendLine($"- `{f.Id}` {f.File}:{f.Line} · reported by {f.Reporter}, last updated by {f.UpdatedBy} · {(f.SnapshotRef is null ? "no snapshot" : Fresh(f.SnapshotRef, new([f.File], [])) ? "fresh: the file is unchanged since" : "stale: the file changed since")}\n  {f.Explanation.Replace('\n', ' ')}");
         }
         var reviews = document.Entries.Where(e => e.SenderSucceeded && e.Message.Content.Type == "review_result").ToArray();
         if (reviews.Length > 0)
         {
             text.AppendLine("\n## Reviews\n");
             foreach (var e in reviews.TakeLast(10))
-                text.AppendLine($"- #{e.Message.Envelope.Sequence} {e.Message.Envelope.Sender} → {e.Message.Envelope.Recipient} ({e.Message.Envelope.CreatedAt:g}) · {(Fresh(e.Message.Envelope.SnapshotRef) ? "fresh" : "stale or unchecked")} · {e.Message.Content.Summary.Replace('\n', ' ')}");
+                text.AppendLine($"- #{e.Message.Envelope.Sequence} {e.Message.Envelope.Sender} → {e.Message.Envelope.Recipient} ({e.Message.Envelope.CreatedAt:g}) · {(Fresh(e.Message.Envelope.SnapshotRef, e.Message.Content.Scope) ? "fresh: the reviewed files are unchanged" : "stale or unchecked")} · {e.Message.Content.Summary.Replace('\n', ' ')}");
         }
         var outstanding = document.Entries.Where(e => e.SenderSucceeded && e.Message.Envelope.Recipient is not null && e.Message.Envelope.Generation == task.Generation &&
             e.Message.Content.Type is "handoff" or "review_request" or "question" && e.Message.State is not (DeliveryState.Answered or DeliveryState.Canceled)).ToArray();

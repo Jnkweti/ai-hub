@@ -228,6 +228,7 @@ public sealed partial class CollaborationStore
             var document = Copy(original);
             var snapshot = captured!;
             ValidateEvidenceAndReview(document, dispatch, content, snapshot);
+            if (content.Type is "review_request" or "review_result") snapshot = WithScope(snapshot, content.Scope); // Freshness by the named files, not the whole tree.
             document.Snapshots[snapshot.Id] = snapshot;
             var envelope = new CollaborationEnvelope(CollaborationContract.Version, Guid.NewGuid().ToString("N"), task.Id, task.RoomId,
                 agent, recipient, DateTimeOffset.UtcNow, dispatch.Claim.Generation, id, ++document.LastSequence, nativeSession, snapshot.Id);
@@ -253,13 +254,13 @@ public sealed partial class CollaborationStore
         if (terminal.Message.Content.Type is "review_request" or "review_result" || terminal.Message.Content.Status == "assignment_complete" && document.Findings.Count > 0)
         {
             var current = captured ?? throw new IOException("Review state changed during completion; retry with current evidence.");
-            if (!Fresh(document, terminal.Message.Envelope.SnapshotRef, current))
+            if (!Fresh(document, terminal.Message.Envelope.SnapshotRef, current, terminal.Message.Content.Scope))
             {
                 // Set the stale review aside and let the same dispatch resubmit after re-checking, instead of failing the run.
                 var at = document.Entries.FindIndex(e => e.Message.Envelope.MessageId == terminal.Message.Envelope.MessageId);
-                document.Entries[at] = ChangeState(terminal, DeliveryState.Interrupted, "Project changed after review submission, or snapshot coverage is incomplete; set aside for resubmission.");
+                document.Entries[at] = ChangeState(terminal, DeliveryState.Interrupted, "Files named in the review changed after it was submitted, or snapshot coverage is incomplete; set aside for resubmission.");
                 dispatch.Token.ThrowIfCancellationRequested(); Save(document);
-                throw new CollaborationValidationException("Project changed after your review was submitted, or the snapshot coverage is incomplete. Your review was set aside as interrupted. Re-check the current files and submit a new review_result, or status blocked, with a new idempotency_key.");
+                throw new CollaborationValidationException("Files named in your review changed after it was submitted, or the snapshot coverage is incomplete. Your review was set aside as interrupted. Re-check the current files and submit a new review_result, or status blocked, with a new idempotency_key.");
             }
             ValidateEvidenceAndReview(document, dispatch, terminal.Message.Content, current);
         }

@@ -32,22 +32,29 @@ public static class SavedStateRepair
             if (room.Target is not ("Both" or "Codex" or "Claude")) room.Target = "Both";
             room.CodexContext = Cursor(room.CodexContext); room.ClaudeContext = Cursor(room.ClaudeContext);
             room.Messages ??= [];
-            room.Messages.RemoveAll(m => m is null);
-            var messageIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var message in room.Messages)
-            {
-                if (!SafeId(message.Id) || !messageIds.Add(message.Id))
-                { message.Id = Guid.NewGuid().ToString("N"); messageIds.Add(message.Id); }
-                message.Speaker ??= "Unknown"; message.Text ??= ""; message.Route ??= "Shared room";
-                message.TaskId ??= "";
-                if (message.Input is not { } input) continue;
-                input.Title ??= "Question";
-                input.Options = (input.Options ?? []).Where(o => o is not null)
-                    .Select(o => new QuestionChoice(o.Label ?? "", o.Description ?? "")).ToArray();
-                if (!Enum.IsDefined(input.Status)) input.Status = InputStatus.Cancelled;
-            }
+            Messages(room.Messages);
         }
         return before != JsonSerializer.Serialize(rooms);
+    }
+    /// <summary>Repairs one room's transcript (its own file since 0.23.0, or inline in a legacy rooms.json).</summary>
+    public static bool Messages(List<SavedMessage> messages)
+    {
+        var before = JsonSerializer.Serialize(messages);
+        messages.RemoveAll(m => m is null);
+        var messageIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in messages)
+        {
+            if (!SafeId(message.Id) || !messageIds.Add(message.Id))
+            { message.Id = Guid.NewGuid().ToString("N"); messageIds.Add(message.Id); }
+            message.Speaker ??= "Unknown"; message.Text ??= ""; message.Route ??= "Shared room";
+            message.TaskId ??= "";
+            if (message.Input is not { } input) continue;
+            input.Title ??= "Question";
+            input.Options = (input.Options ?? []).Where(o => o is not null)
+                .Select(o => new QuestionChoice(o.Label ?? "", o.Description ?? "")).ToArray();
+            if (!Enum.IsDefined(input.Status)) input.Status = InputStatus.Cancelled;
+        }
+        return before != JsonSerializer.Serialize(messages);
     }
     private static bool SafeId(string? id) => !string.IsNullOrWhiteSpace(id) && id.Length <= 128 &&
         id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');

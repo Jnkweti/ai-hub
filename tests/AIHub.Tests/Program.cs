@@ -102,11 +102,21 @@ if (args.Contains("--connect") || args.Contains("--live"))
 // --only <text> runs the tests whose names contain <text>; --repeat <n> runs each selected test n times.
 var only = args.SkipWhile(a => a != "--only").Skip(1).FirstOrDefault();
 var repeat = int.TryParse(args.SkipWhile(a => a != "--repeat").Skip(1).FirstOrDefault(), out var count) ? Math.Clamp(count, 1, 1000) : 1;
-var passed = 0;
+var passed = 0; var failed = new List<string>();
+// A failing test is reported as FAIL with its message and the run continues; the exit code says whether anything failed.
 async Task Test(string name, Func<Task> test)
 {
     if (only is not null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) return;
-    for (var i = 0; i < repeat; i++) { await test(); passed++; Console.WriteLine("PASS " + name + (repeat > 1 ? $" [{i + 1}/{repeat}]" : "")); }
+    for (var i = 0; i < repeat; i++)
+    {
+        var label = name + (repeat > 1 ? $" [{i + 1}/{repeat}]" : "");
+        try { await test(); passed++; Console.WriteLine("PASS " + label); }
+        catch (Exception ex)
+        {
+            failed.Add(label); Console.WriteLine("FAIL " + label + ": " + ex.GetType().Name + ": " + ex.Message);
+            Console.Error.WriteLine(ex.ToString());
+        }
+    }
 }
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 void DeleteFixtureDirectory(string root)
@@ -415,7 +425,8 @@ await ReliabilityTests.Run(Test);
 await ContextSourceTests.Run(Test);
 await ConcurrentWorkTests.Run(Test);
 await CollaborationEvidenceTests.Run(Test);
-Console.WriteLine($"\n{passed} tests passed.");
+Console.WriteLine(failed.Count == 0 ? $"\n{passed} tests passed." : $"\n{passed} tests passed, {failed.Count} failed:\n  " + string.Join("\n  ", failed));
+Environment.ExitCode = failed.Count == 0 ? 0 : 1;
 
 sealed class Tracker
 {

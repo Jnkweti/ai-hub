@@ -145,6 +145,7 @@ public partial class MainWindow
         if (!pendingInputs.Remove(pending.View)) return;
         pending.Registration.Dispose(); pending.View.InputChanged -= RequestChoiceChanged;
         pending.View.Finish(decision is null ? InputStatus.Cancelled : decision.Allow ? InputStatus.Answered : InputStatus.Declined);
+        TouchRoom(pending.Room); // The saved request's status changed in place.
         if (decision is not null)
         {
             var text = decision.Allow ? pending.Approval.IsQuestion ? pending.Approval.IsSecret ? "[Private answer sent]" : decision.Answer : "Allowed once: " + pending.Approval.Title : "Declined: " + pending.Approval.Title;

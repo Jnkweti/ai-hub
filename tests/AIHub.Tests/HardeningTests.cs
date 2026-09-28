@@ -446,6 +446,36 @@ internal static class HardeningTests
                 Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "user_message" && e.Text == "also check the tests"), "The interjection was not recorded in the stream after the turn");
             }
         });
+        // 0.23.0: per-room transcript files.
+        await test("rooms are stored as a small index plus one transcript per room, migrated from a legacy file and rewritten only when changed", () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "ah-rooms-" + Guid.NewGuid().ToString("N")[..8]); Directory.CreateDirectory(root);
+            try
+            {
+                var legacy = new List<Room>
+                {
+                    new() { Title = "Big", Workspace = root, Messages = Enumerable.Range(0, 300).Select(i => new SavedMessage { Text = "message " + i }).ToList() },
+                    new() { Title = "Small", Workspace = root, Messages = [new SavedMessage { Text = "hello" }] }
+                };
+                new LocalStore(root).Save(LocalStore.RoomsFile, legacy);
+                var store = new LocalStore(root); var rooms = store.LoadRooms();
+                Check(rooms.Count == 2 && rooms[0].Messages.Count == 300 && rooms[1].Messages.Count == 1, "Legacy transcripts were not loaded");
+                var index = File.ReadAllText(Path.Combine(root, LocalStore.RoomsFile));
+                Check(!index.Contains("message 0") && File.Exists(Path.Combine(root, LocalStore.TranscriptFile(rooms[0].Id))), "Legacy file was not split into index and transcripts");
+                var big = Path.Combine(root, LocalStore.TranscriptFile(rooms[0].Id)); var before = File.GetLastWriteTimeUtc(big);
+                Thread.Sleep(30); rooms[1].Messages.Add(new SavedMessage { Text = "again" });
+                store.SaveRooms(rooms, new HashSet<string>());
+                Check(File.GetLastWriteTimeUtc(big) == before, "An unchanged transcript was rewritten");
+                rooms[0].Messages[0].Text = "edited in place"; store.SaveRooms(rooms, new HashSet<string> { rooms[0].Id });
+                Check(File.GetLastWriteTimeUtc(big) > before, "A dirty transcript was not rewritten");
+                var reloaded = new LocalStore(root).LoadRooms();
+                Check(reloaded[0].Messages[0].Text == "edited in place" && reloaded[1].Messages.Count == 2 && reloaded[0].Title == "Big", "Round trip lost data");
+                store.DeleteRoom(reloaded, reloaded[0].Id);
+                Check(!File.Exists(big) && new LocalStore(root).LoadRooms().Single().Title == "Small", "Deleting a room left its transcript or index entry");
+            }
+            finally { Directory.Delete(root, true); }
+            return Task.CompletedTask;
+        });
         // 0.21.0: bounded recovery loops.
         await test("a provider process that dies mid-turn is restarted with backoff and the turn continues", async () =>
         {

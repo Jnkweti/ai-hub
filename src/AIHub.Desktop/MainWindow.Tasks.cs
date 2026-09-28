@@ -132,7 +132,7 @@ public partial class MainWindow
                         {
                             await owner.Hub.StopAsync();
                             foreach (var message in owner.Room.Messages.Where(m => !m.Complete))
-                                if (!message.Text.EndsWith("[Stopped]")) message.Text += "\n\n[Stopped]";
+                                if (!message.Text.EndsWith("[Stopped]")) { message.Text += "\n\n[Stopped]"; TouchRoom(owner.Room); }
                             owner.Room.PauseReason = "Instructions changed. Review them, then continue the task.";
                             if (ReferenceEquals(current, owner.Room)) { MarkInterrupted(); SetPause(owner.Room.PauseReason); }
                         }
@@ -242,7 +242,7 @@ public partial class MainWindow
             stop.IsEnabled = false;
             await worker.Hub.StopAsync();
             foreach (var message in worker.Room.Messages.Where(m => !m.Complete))
-                if (!message.Text.EndsWith("[Stopped]")) message.Text += "\n\n[Stopped]";
+                if (!message.Text.EndsWith("[Stopped]")) { message.Text += "\n\n[Stopped]"; TouchRoom(worker.Room); }
             worker.Room.PauseReason = "You stopped the agents. Completed file changes are kept.";
             if (ReferenceEquals(current, worker.Room)) { MarkInterrupted(); SetPause(worker.Room.PauseReason); }
             Save(); Refresh(true);

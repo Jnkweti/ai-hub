@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
+Version **0.23.0** closes the review's last carried-over items: each conversation's transcript is its own file and only rewritten when it changed, a review stays fresh while the files it names are unchanged even if unrelated files moved on, and the test runner reports failures instead of crashing. See [remaining items 0.23.0](docs/REMAINING-0.23.0.md).
+
 Version **0.22.0** adds experimental per-agent worktrees: in a git project with edits enabled, Codex and Claude Code each edit in their own worktree, the Hub merges each turn into an integration branch and reports conflicts instead of resolving them, and your project folder changes only when you choose Merge into project. See [worktrees 0.22.0](docs/WORKTREES-0.22.0.md).
 
 Version **0.21.0** adds bounded recovery: a provider process that dies mid-turn is restarted with backoff (30 s to 30 min, six attempts) and resumes the same native session, so the turn continues instead of the run failing. See [recovery 0.21.0](docs/RECOVERY-0.21.0.md).

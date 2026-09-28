@@ -50,17 +50,17 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
 
 ## Carried over from the design review
 
-- [ ] **Per-room transcript files** (issue 10). Split `rooms.json` so a large room's history is not rewritten on every
-  save. M.
-- [ ] **Review freshness scoped to named files** (issue 2). A review stays fresh while the files it names are
-  unchanged, even if unrelated files changed. M.
+- [x] **Per-room transcript files** (issue 10). Split `rooms.json` so a large room's history is not rewritten on every
+  save. Shipped as 0.23.0, see `REMAINING-0.23.0.md`.
+- [x] **Review freshness scoped to named files** (issue 2). A review stays fresh while the files it names are
+  unchanged, even if unrelated files changed. Shipped as 0.23.0.
 
 ## Verification debt
 
 - [ ] Rerun `AIHub.Tests.exe --live-stream-live <fresh dir>` (0.14.0) and a Claude+Codex live pass for 0.15.0 to
   0.17.0 after the Codex limit resets on October 3, 2026 at 11:21 PM; record the results in the release docs.
-- [ ] Make the test runner report a thrown fixture exception as `FAIL <name>` instead of crashing with an unhandled
-  exception (exit code -532462766).
+- [x] Make the test runner report a thrown fixture exception as `FAIL <name>` instead of crashing with an unhandled
+  exception (exit code -532462766). Shipped as 0.23.0.
 
 ## Deliberately not planned
 

@@ -71,6 +71,40 @@ public sealed class LocalStore
             }
         }
     }
+    // Rooms: a small index plus one transcript file per room, so a large conversation is rewritten only when it changed.
+    public const string RoomsFile = "rooms.json";
+    public static string TranscriptFile(string roomId) => "room-" + roomId + ".json";
+    private readonly Dictionary<string, int> transcriptCounts = [];
+    /// <summary>Loads the rooms index and each room's transcript; a legacy single-file rooms.json is split on first load.</summary>
+    public List<Room> LoadRooms()
+    {
+        var rooms = Load(RoomsFile, () => new List<Room>(), SavedStateRepair.Rooms);
+        var migrate = false;
+        foreach (var room in rooms)
+        {
+            var name = TranscriptFile(room.Id);
+            var exists = File.Exists(DataPath(name));
+            if (exists) room.Messages = Load(name, () => new List<SavedMessage>(), SavedStateRepair.Messages);
+            else if (room.Messages.Count > 0) migrate = true;
+            lock (sync) transcriptCounts[room.Id] = exists ? room.Messages.Count : -1;
+        }
+        if (migrate) SaveRooms(rooms, rooms.Select(r => r.Id).ToHashSet());
+        return rooms;
+    }
+    /// <summary>Writes the index every time, and a room's transcript only when it was marked dirty, has no file yet, or its message count changed.</summary>
+    public void SaveRooms(IReadOnlyList<Room> rooms, IReadOnlySet<string> dirty)
+    {
+        lock (sync)
+        {
+            Save(RoomsFile, rooms.Select(r => r.Header()).ToList());
+            foreach (var room in rooms)
+            {
+                if (!dirty.Contains(room.Id) && transcriptCounts.TryGetValue(room.Id, out var known) && known == room.Messages.Count) continue;
+                Save(TranscriptFile(room.Id), room.Messages);
+                transcriptCounts[room.Id] = room.Messages.Count;
+            }
+        }
+    }
     public void AppendActivity(string room, AgentEvent value)
     {
         lock (sync)
@@ -92,15 +126,17 @@ public sealed class LocalStore
             var activityPath = ActivityPath(roomId);
             if (rooms.Count(r => r.Id == roomId) != 1)
                 throw new InvalidOperationException("The conversation could not be identified uniquely.");
-            var remaining = rooms.Where(r => r.Id != roomId).ToList();
-            Save("rooms.json", remaining);
+            var remaining = rooms.Where(r => r.Id != roomId).Select(r => r.Header()).ToList();
+            Save(RoomsFile, remaining);
             try { File.Delete(activityPath); }
             catch
             {
                 // Keep the conversation available if its activity log could not be removed.
-                Save("rooms.json", rooms);
+                Save(RoomsFile, rooms.Select(r => r.Header()).ToList());
                 throw;
             }
+            try { File.Delete(DataPath(TranscriptFile(roomId))); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } // An orphaned transcript is harmless.
+            transcriptCounts.Remove(roomId);
         }
     }
     public string ActivityPath(string roomId)

@@ -22,6 +22,8 @@ public partial class MainWindow : Window
     private readonly ProjectStatusStore statusStore;
     private HubSettings settings;
     private bool dirty; // Unsaved conversation state: streamed text, drafts, routing and pause changes between explicit saves.
+    private readonly HashSet<string> dirtyRooms = []; // Rooms whose transcript changed in place (streamed text, [Stopped], input status); additions are caught by count.
+    private void TouchRoom(Room room) { dirtyRooms.Add(room.Id); dirty = true; }
     private readonly ObservableCollection<Room> rooms;
     private readonly ObservableCollection<MessageView> messages = [];
     private ActivityFeed activity = new();
@@ -51,7 +53,7 @@ public partial class MainWindow : Window
     {
         settings = store.Load("settings.json", () => new HubSettings { Workspace = FindProjectRoot() }, SavedStateRepair.Settings);
         statusStore = new(store.DirectoryPath);
-        rooms = new(store.Load("rooms.json", () => new List<Room>(), SavedStateRepair.Rooms));
+        rooms = new(store.LoadRooms());
         taskMemory = new(store);
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
@@ -61,8 +63,9 @@ public partial class MainWindow : Window
         AppDomain.CurrentDomain.UnhandledException += (_, e) => { if (e.ExceptionObject is Exception ex) audit.RecordUnhandled(ex); };
         TaskScheduler.UnobservedTaskException += (_, e) => audit.Record(AuditCode.UnhandledError, exception: e.Exception.GetBaseException());
         // Native requests cannot survive an application restart.
-        foreach (var message in rooms.SelectMany(r => r.Messages))
-            if (message.Input is { Status: InputStatus.Pending } input) input.Status = InputStatus.Cancelled;
+        foreach (var room in rooms)
+            foreach (var message in room.Messages)
+                if (message.Input is { Status: InputStatus.Pending } input) { input.Status = InputStatus.Cancelled; dirtyRooms.Add(room.Id); }
         Motion.Configure(settings.ReduceMotion);
         InitializeComponent();
         VersionLabel.Text = "AI Hub  /  " + typeof(MainWindow).Assembly.GetName().Version?.ToString(3);
@@ -107,7 +110,7 @@ public partial class MainWindow : Window
     }
     private void Save()
     {
-        try { store.Save("settings.json", settings); store.Save("rooms.json", rooms.ToList()); dirty = false; }
+        try { store.Save("settings.json", settings); store.SaveRooms(rooms, dirtyRooms); dirty = false; dirtyRooms.Clear(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { audit.Record(AuditCode.StorageError, current.Id, current.ActiveTaskId, exception: ex); StateLabel.Text = "Save failed: " + ex.Message; }
     }
     private void BuildHub()
@@ -255,6 +258,7 @@ public partial class MainWindow : Window
         if (ReferenceEquals(current, worker.Room) && ReferenceEquals(hub, worker.Hub)) { Handle(item); return; }
         if (item.Kind is EventKind.TextDelta or EventKind.Message)
         {
+            TouchRoom(worker.Room);
             var key = item.Agent + "|" + item.ItemId;
             if (!worker.Streaming.TryGetValue(key, out var view))
             {
@@ -279,6 +283,7 @@ public partial class MainWindow : Window
         dirty = true;
         if (item.Kind is EventKind.TextDelta or EventKind.Message)
         {
+            TouchRoom(current);
             var key = item.Agent + "|" + item.ItemId;
             if (!streaming.TryGetValue(key, out var view))
             {
@@ -425,6 +430,7 @@ public partial class MainWindow : Window
                 {
                     current.ActiveTaskId = taskMemory.Create(current.Id, current.Workspace, prompt.Length <= 32000 ? prompt : "Review the long user message saved in this conversation. Retrieve its full shared source before answering.");
                     foreach (var legacy in current.Messages.Where(m => m.TaskId.Length == 0)) legacy.TaskId = current.ActiveTaskId;
+                    TouchRoom(current);
                     await DisposeCurrentHubAsync(); BuildHub(); Save();
                 }
                 hub!.TaskId = current.ActiveTaskId;
@@ -464,7 +470,7 @@ public partial class MainWindow : Window
         if (!e.IsRepeat) await SendAsync();
     }
     private void MarkInterrupted()
-    { CancelPendingInputs(); foreach (var view in messages.Where(m => !m.Saved.Complete)) if (!view.Text.EndsWith("[Stopped]")) view.Text += "\n\n[Stopped]"; }
+    { CancelPendingInputs(); foreach (var view in messages.Where(m => !m.Saved.Complete)) if (!view.Text.EndsWith("[Stopped]")) { view.Text += "\n\n[Stopped]"; TouchRoom(current); } }
     private async void Stop_Click(object sender, RoutedEventArgs e)
     { if (switching || sending || closing) return; await StopAllWorkersAsync(); }
     private async Task StopAllWorkersAsync()
@@ -476,7 +482,7 @@ public partial class MainWindow : Window
         {
             worker.Room.PauseReason = "You stopped the agents. Completed file changes are kept.";
             foreach (var view in worker.Streaming.Values.Where(v => !v.Saved.Complete))
-                if (!view.Text.EndsWith("[Stopped]")) view.Text += "\n\n[Stopped]";
+                if (!view.Text.EndsWith("[Stopped]")) { view.Text += "\n\n[Stopped]"; TouchRoom(worker.Room); }
         }
         if (!current.IsArchived)
         { MarkInterrupted(); SetAgentState(Agent.Codex, "Stopped", false); SetAgentState(Agent.Claude, "Stopped", false); SetPause("You stopped the agents. Completed file changes are kept."); }
@@ -519,7 +525,7 @@ public partial class MainWindow : Window
         CancelPendingInputs(allRooms: true);
         foreach (var room in rooms)
             foreach (var message in room.Messages.Where(m => !m.Complete))
-                if (!message.Text.EndsWith("[Stopped]")) message.Text += "\n\n[Stopped]";
+                if (!message.Text.EndsWith("[Stopped]")) { message.Text += "\n\n[Stopped]"; TouchRoom(room); }
     }
     private void ActivateRoom(Room selected)
     {
@@ -787,7 +793,7 @@ public partial class MainWindow : Window
         {
             await DisposeCurrentHubAsync();
             room.IsArchived = !wasArchived;
-            try { store.Save("rooms.json", rooms.ToList()); }
+            try { store.SaveRooms(rooms, dirtyRooms); dirtyRooms.Clear(); }
             catch { room.IsArchived = wasArchived; throw; }
             SelectActiveRoom(wasArchived ? room : null); Save();
             StateLabel.Text = wasArchived ? "Conversation restored · send a message when you are ready" : "Conversation archived · find it in Archived conversations";

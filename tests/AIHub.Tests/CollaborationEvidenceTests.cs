@@ -69,6 +69,25 @@ internal static class CollaborationEvidenceTests
             f.Submit(reviewer, result); Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "checked", "Peer check did not advance finding");
             return Task.CompletedTask;
         });
+        await test("a review stays fresh while only files outside its scope change, and goes stale when a named file changes", () =>
+        {
+            using var f = new Fixture(); File.WriteAllText(Path.Combine(f.Workspace, "README.md"), "docs v1");
+            var author = f.Open(Agent.Codex); var request = f.Submit(author, Message("review_request")); // scope: src/main.cs
+            File.WriteAllText(Path.Combine(f.Workspace, "README.md"), "docs v2"); // Unrelated to the review.
+            var reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            var result = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(result, "open", []);
+            var review = f.Submit(reviewer, result);
+            Check(review.State != DeliveryState.Interrupted && f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "open", "An unrelated file change made the review stale");
+            var inspected = f.Store.Inspect(f.Claim.TaskId, default);
+            Check(CollaborationStore.Fresh(inspected.Document, review.Envelope.SnapshotRef, inspected.Current, review.Content.Scope), "Scoped freshness not reported after an unrelated change");
+            author = f.Open(Agent.Codex, review.Envelope.MessageId);
+            f.Call(author, "mark_addressed", new JsonObject { ["finding_id"] = "finding-1", ["explanation"] = "Fixed" });
+            request = f.Submit(author, Message("review_request", Agent.Claude, review.Envelope.MessageId)); reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            File.AppendAllText(Path.Combine(f.Workspace, "src/main.cs"), "changed after the request"); // A named file.
+            var stale = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(stale, "open", []);
+            Reject(() => f.Call(reviewer, "submit_message", stale));
+            return Task.CompletedTask;
+        });
         await test("a reviewer can dispute a finding instead of passing, and a disputed finding blocks completion", () =>
         {
             using var f = new Fixture();
