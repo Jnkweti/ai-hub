@@ -33,4 +33,10 @@ mechanism (its app-server takes input only at turn boundaries), so it keeps seei
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
 - Live provider check: not run; the Codex account is over its limit until October 3, 2026. The end-to-end effect
   (Claude Code acting on a channel message mid-turn) is a live check for after that date, with the setting enabled.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `0b61be8` at a short temporary path built with zero warnings and passed all 235 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.19.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\midturn-push-020-install-result.json` (612 files verified, package hashes match, 10 profile
+  files verified, production data unchanged, backups `before-collaboration-20260928-190852.zip` and
+  `before-collaboration-data-20260928-190852.zip`). Reopened as 0.20.0.0 with 4 rooms and 1 task intact:
+  `artifacts\midturn-push-020-reopen-result.json`. The setting ships off; enable it in Settings to use it.
