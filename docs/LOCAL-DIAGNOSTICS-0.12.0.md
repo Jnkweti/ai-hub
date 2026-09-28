@@ -104,5 +104,14 @@ Every count below comes from a recorded run on September 27, 2026.
   Log `artifacts\diagnostics-012-conversation-ui.txt`.
 - Independent JSON Schema check: all 26 contract fixtures passed. `claude plugin validate` passed on the
   plugin manifest; the Codex CLI has no validate command, so its manifest was checked by parsing only.
+- Clean checkout of commit `6979151` cloned to a short temp path: Release build with zero warnings and
+  zero errors; **199 tests passed** from the test executable in 70 seconds. Logs:
+  `artifacts\diagnostics-012-clean-build.txt` and `artifacts\diagnostics-012-clean-tests.txt`. The
+  working-tree suite log is `artifacts\diagnostics-012-tests.txt`.
+- Final package rebuilt from the committed tree: `artifacts\diagnostics-012-release`, product version
+  `0.12.0+6979151…`, 611 files, Core DLL SHA-256
+  `5AC059BF56D954AE6EB1FC6E144511433F59DE9F43AE55C7B3DC9BD1C2A4E87B` in both the app and the bridge.
+  The clean-checkout Core DLL hashes differently because the build embeds its source path; its tests,
+  not its bytes, are the evidence.
 - No native model calls were made for this release. Installation has not been performed: the installed
   app remains 0.11.0 until the user approves replacing it.
