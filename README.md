@@ -20,7 +20,7 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 ## Interface
 
-Planned work is tracked in [docs/TODO.md](docs/TODO.md).
+Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
 Version **0.22.0** adds experimental per-agent worktrees: in a git project with edits enabled, Codex and Claude Code each edit in their own worktree, the Hub merges each turn into an integration branch and reports conflicts instead of resolving them, and your project folder changes only when you choose Merge into project. See [worktrees 0.22.0](docs/WORKTREES-0.22.0.md).
 
