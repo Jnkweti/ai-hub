@@ -78,4 +78,7 @@ turn-taking and the user as a peer, follow in later releases.
   single-agent continuation started a fresh phase with a new native session, retrieved history with
   `get_messages`, and appended a new generation and sequence. Completed records survived a restart with no
   automatic work, and the workspace stayed empty. Elapsed 118 seconds for both directions.
-- Installation: PENDING the user's approval.
+- Clean checkout of commit `5a7c4a7` cloned to a short temp path: Release build with zero warnings and zero
+  errors; **203 tests passed** in 64 seconds (`artifacts\live-stream-013-clean-build.txt`,
+  `artifacts\live-stream-013-clean-tests.txt`).
+- Installation: PENDING the user's approval. The installed app remains 0.12.0.
