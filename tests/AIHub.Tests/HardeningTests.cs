@@ -222,6 +222,134 @@ internal static class HardeningTests
             await hub.SubmitAsync("yooo", "Both"); await f.Finished();
             Check(f.Calls == 1 && !prepared && f.Memory.Get(f.TaskId)!.State == WorkState.Ready, $"A greeting ran the full pipeline: calls={f.Calls} prepared={prepared}");
         });
+        // 0.18.0: batch 1 of the peer-project survey.
+        await test("a turn with no provider output is stopped by the inactivity watchdog, but streaming or waiting on the user is not", async () =>
+        {
+            using (var f = new CollaborationRoutingTests.Fixture())
+            {
+                await using var hub = f.Hub(async (_, _, _, _, token) => { await Task.Delay(Timeout.Infinite, token); return ""; });
+                hub.TurnInactivitySeconds = 1;
+                await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+                var task = f.Memory.Get(f.TaskId)!;
+                Check(task.State == WorkState.Failed && task.Reason.Contains("no output for 1 seconds"), $"Silent turn was not stopped: {task.State} {task.Reason}");
+            }
+            using (var f = new CollaborationRoutingTests.Fixture())
+            {
+                CollaborationRoutingTests.StructuredFake? captured = null;
+                StructuredClientEvents.Hook = client => { captured = client; _ = Task.Run(async () => { for (var i = 0; i < 8; i++) { await Task.Delay(300); client.Emit(new(Agent.Codex, EventKind.Status, "Claude · thinking")); } }); };
+                try
+                {
+                    await using var hub = f.Hub(async (_, host, _, _, token) =>
+                    {
+                        await Task.Delay(2500, token);
+                        CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return "Done after a long think.";
+                    });
+                    hub.TurnInactivitySeconds = 1;
+                    await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+                    Check(f.Memory.Get(f.TaskId)!.State == WorkState.Ready, "A streaming turn was stopped by the watchdog: " + f.Memory.Get(f.TaskId)!.Reason);
+                }
+                finally { StructuredClientEvents.Hook = null; }
+            }
+            using (var f = new CollaborationRoutingTests.Fixture())
+            {
+                CollaborationRoutingTests.StructuredFake? captured = null;
+                StructuredClientEvents.Hook = client => captured = client;
+                try
+                {
+                    await using var hub = f.Hub(async (_, host, _, _, token) =>
+                    {
+                        await captured!.RequestApproval!(new Approval(Agent.Codex, "Approve command", "dotnet test"), token);
+                        CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return "Ran it after approval.";
+                    });
+                    hub.TurnInactivitySeconds = 1;
+                    hub.RequestApproval = async (_, token) => { await Task.Delay(2500, token); return new Decision(true); };
+                    await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+                    Check(f.Memory.Get(f.TaskId)!.State == WorkState.Ready, "Waiting on the user counted as provider inactivity: " + f.Memory.Get(f.TaskId)!.Reason);
+                }
+                finally { StructuredClientEvents.Hook = null; }
+            }
+        });
+        await test("limit messages yield the moment the provider is usable again", () =>
+        {
+            var now = new DateTimeOffset(2026, 9, 28, 16, 0, 0, TimeSpan.FromHours(-4));
+            var codex = ProviderLimits.UnavailableUntil("You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 3rd, 2026 11:21 PM.", now);
+            Check(codex == new DateTimeOffset(2026, 10, 3, 23, 21, 0, now.Offset), "Codex reset date not parsed: " + codex);
+            var claude = ProviderLimits.UnavailableUntil("Claude usage limit reached. Your limit will reset at 3pm (America/New_York).", now);
+            Check(claude > now && claude.ToUniversalTime().Hour is 19 or 18 && claude - now < TimeSpan.FromDays(1), "Zoned clock reset not parsed: " + claude);
+            Check(ProviderLimits.UnavailableUntil("Rate limit exceeded; retry in 20 minutes.", now) == now.AddMinutes(20), "Relative reset not parsed");
+            Check(ProviderLimits.UnavailableUntil("429 Too Many Requests", now) == now.AddMinutes(5), "Rate-limit cooldown wrong");
+            Check(ProviderLimits.UnavailableUntil("You have reached your usage limit.", now) == now.AddHours(1), "Usage-limit cooldown wrong");
+            return Task.CompletedTask;
+        });
+        await test("a provider known to be over its limit is not dispatched to, and the other agent answers alone", async () =>
+        {
+            using (var f = new CollaborationRoutingTests.Fixture())
+            {
+                await using var hub = f.Hub((_, host, _, _, _) => { CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Claude answers."); });
+                hub.ProviderUnavailableUntil = agent => agent == Agent.Codex ? DateTimeOffset.Now.AddHours(1) : null;
+                await hub.SubmitAsync("Discuss our options", "Both"); await f.Finished();
+                var task = f.Memory.Get(f.TaskId)!;
+                Check(f.Speakers.SequenceEqual([Agent.Claude]) && task.State == WorkState.Ready && task.Reason.Contains("unavailable until"), $"Unavailable provider was dispatched to or the outcome hid it: {string.Join(",", f.Speakers)} {task.State} {task.Reason}");
+            }
+            using (var f = new CollaborationRoutingTests.Fixture())
+            {
+                await using var hub = f.Hub((_, _, _, _, _) => throw new Exception("No provider should run"));
+                hub.ProviderUnavailableUntil = _ => DateTimeOffset.Now.AddHours(1);
+                await hub.SubmitAsync("Discuss our options", "Both"); await f.Finished();
+                Check(f.Calls == 0 && f.Memory.Get(f.TaskId)!.State == WorkState.Failed && f.Memory.Get(f.TaskId)!.Reason.Contains("Wait for the limit"), "Both unavailable did not fail fast");
+            }
+        });
+        await test("delta prompts tier the stream: full peer and user entries, one line per run of tool calls, one line per pass", () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var claim = f.Memory.Begin(f.TaskId, false);
+            for (var i = 0; i < 6; i++) f.Store.AppendEvent(claim, "tool", "Codex", $"command: dotnet test {i} → exit {(i == 2 ? 1 : 0)}{(i == 2 ? " (error)" : "")}", "ev" + i, "d1");
+            f.Store.AppendEvent(claim, "agent_message", "Codex", "The tests pass except one boundary case.", "m1", "d1");
+            f.Store.AppendEvent(claim, "agent_pass", "Codex", "Reviewed; nothing to add.", "m2", "d2");
+            f.Store.AppendEvent(claim, "user_message", "You", "Please fix the boundary case.", "chat:u1");
+            var delta = f.Store.EventsSince(claim, 0, "Claude");
+            Check(delta.Text.Contains("6 native tool calls finished, 1 with errors") && !delta.Text.Contains("dotnet test 0 →"), "Tool calls were not summarised: " + delta.Text);
+            Check(delta.Text.Contains("The tests pass except one boundary case.") && delta.Text.Contains("Please fix the boundary case."), "A peer or user entry was not delivered in full");
+            Check(delta.Text.Contains("agent_pass · Codex: passed.") && delta.Count == 4 && delta.LastSequence == 9, $"Pass line or bookkeeping wrong: count={delta.Count} last={delta.LastSequence}");
+            f.Memory.End(claim, WorkState.Ready, "done");
+            return Task.CompletedTask;
+        });
+        await test("the second agent to change a file in a phase is told once and the stream records the collision", () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var claim = f.Memory.Begin(f.TaskId, false); var workspace = f.Memory.Get(f.TaskId)!.Workspace;
+            var codex = f.Dispatch(claim, Agent.Codex);
+            Check(codex.Observe(new(Agent.Codex, EventKind.Tool, "fileChange · completed", "fc1", "{\"type\":\"fileChange\",\"status\":\"completed\",\"changes\":[{\"path\":\"src/app.cs\",\"kind\":\"modify\"}]}")) is null, "First edit was reported as a collision");
+            codex.Abort("turn over"); f.Memory.ReleaseSpeaker(claim, Agent.Codex);
+            var claude = f.Dispatch(claim, Agent.Claude);
+            var notice = claude.Observe(new(Agent.Claude, EventKind.Tool, "Edit", "toolu_1", "{\"file_path\":\"" + Path.Combine(workspace, "src", "app.cs").Replace("\\", "\\\\") + "\",\"old_string\":\"a\",\"new_string\":\"b\"}"));
+            Check(notice is not null && notice.Contains("src/app.cs"), "Second agent was not told about the collision: " + notice);
+            var again = claude.Observe(new(Agent.Claude, EventKind.Tool, "Write", "toolu_2", "{\"file_path\":\"src/app.cs\",\"content\":\"c\"}"));
+            var doc = f.Store.Read(f.TaskId);
+            Check(again is null && doc.Events.Count(e => e.Kind == "system" && e.Text.StartsWith("Edit collision")) == 1 && doc.Touches.Count == 3, $"Collision not recorded once: notice={again} events={doc.Events.Count(e => e.Text.StartsWith("Edit collision"))} touches={doc.Touches.Count}");
+            claude.Abort("done"); f.Memory.End(claim, WorkState.Ready, "done");
+            return Task.CompletedTask;
+        });
+        await test("the phase completion gate names an unanswered peer request", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            await using var hub = f.Hub((agent, host, _, _, _) =>
+            {
+                if (agent == Agent.Codex) throw new IOException("You've hit your usage limit. Try again at Oct 3rd, 2026 11:21 PM.");
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message("review_request", Agent.Codex)); return Task.FromResult("Codex, please review src/app.cs.");
+            });
+            await hub.SubmitAsync("Claude, ask Codex to review the change", "Both"); await f.Finished();
+            var task = f.Memory.Get(f.TaskId)!; var doc = f.Store.Read(f.TaskId);
+            Check(task.State == WorkState.Ready && task.Reason.Contains("1 peer request unanswered"), $"Gate did not report the unanswered request: {task.State} {task.Reason}");
+            Check(doc.Events.Any(e => e.Kind == "system" && e.Text.StartsWith("Outstanding at phase end")), "Gate summary not in the stream");
+        });
+        await test("a review packet is generated from the ledger with attributed sections", () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            f.Store.PinInstruction(f.TaskId, "Keep the public API unchanged.");
+            var packet = f.Store.ReviewPacket(f.TaskId, default);
+            Check(packet.StartsWith("# Review packet") && packet.Contains("## Objective and active instructions") && packet.Contains("Keep the public API unchanged.") &&
+                packet.Contains("## Findings") && packet.Contains("None recorded.") && packet.Contains("## Evidence") && packet.Contains("## Provenance") && packet.Contains("agent claims"), "Packet sections missing:\n" + packet);
+            return Task.CompletedTask;
+        });
     }
 }
 

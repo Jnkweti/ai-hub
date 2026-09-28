@@ -36,7 +36,10 @@ public sealed class CollaborationDocument
     // Conversation records archived at the record cap: how many, and the newest creation time among them.
     public DateTimeOffset? ArchivedThrough { get; set; }
     public long ArchivedRecords { get; set; }
+    // Files each agent changed, from native edit events, so a second agent changing the same file in a phase is noticed.
+    public List<FileTouch> Touches { get; set; } = [];
 }
+public sealed record FileTouch(string Path, Agent Agent, DateTimeOffset Time, long Generation);
 
 /// <summary>One store per application owner. Lock order is always TaskMemory, then this store.</summary>
 public sealed partial class CollaborationStore
@@ -278,6 +281,34 @@ public sealed partial class CollaborationStore
         return Copy(document).Entries.Single(e => e.Message.Envelope.MessageId == terminal.Message.Envelope.MessageId).Message;
         });
     }
+    /// <summary>What a phase leaves outstanding: unanswered peer requests and open, addressed-but-unchecked or disputed findings.</summary>
+    internal string? PhaseSummary(TaskClaim claim) => memory.WithClaim(claim, task =>
+    {
+        lock (gate)
+        {
+            var document = Load(task); var parts = new List<string>();
+            // A request that never reached Answered is unanswered, whether it is still pending, was delivered to a dispatch
+            // that ended without a reply, or was interrupted when that dispatch was aborted.
+            var unanswered = document.Entries.Where(e => e.SenderSucceeded && e.Message.Envelope.Generation == claim.Generation && e.Message.Envelope.Recipient is not null &&
+                e.Message.Content.Type is "handoff" or "review_request" or "question" && e.Message.State is not (DeliveryState.Answered or DeliveryState.Canceled)).ToArray();
+            if (unanswered.Length > 0)
+                parts.Add($"{unanswered.Length} peer request{(unanswered.Length == 1 ? "" : "s")} unanswered ({string.Join(", ", unanswered.Select(e => $"{e.Message.Content.Type} from {e.Message.Envelope.Sender} to {e.Message.Envelope.Recipient}"))})");
+            var open = document.Findings.Count(f => f.Disposition == "open");
+            var addressed = document.Findings.Count(f => f.Disposition == "addressed");
+            var disputed = document.Findings.Count(f => f.Disposition == "disputed");
+            if (open > 0) parts.Add($"{open} open finding{(open == 1 ? "" : "s")}");
+            if (addressed > 0) parts.Add($"{addressed} addressed finding{(addressed == 1 ? "" : "s")} awaiting a peer check");
+            if (disputed > 0) parts.Add($"{disputed} disputed finding{(disputed == 1 ? "" : "s")}");
+            return parts.Count == 0 ? null : "Outstanding at phase end: " + string.Join("; ", parts) + ".";
+        }
+    });
+    /// <summary>A review-ready markdown packet for the task, built from the ledger and a current snapshot.</summary>
+    public string ReviewPacket(string taskId, CancellationToken token)
+    {
+        var task = memory.Get(taskId) ?? throw new IOException("Unknown task.");
+        var inspected = Inspect(taskId, token);
+        return CollaborationPresentation.ReviewPacket(inspected.Document, task, inspected.Current);
+    }
     internal CollaborationMessage? Incoming(CollaborationDispatch dispatch) => Use(dispatch, (_, document) => Incoming(Copy(document), dispatch));
     private static CollaborationMessage? Incoming(CollaborationDocument document, CollaborationDispatch dispatch) =>
         document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == dispatch.IncomingMessageId)?.Message;
@@ -382,6 +413,7 @@ public sealed partial class CollaborationStore
         ValidateWork(document, task);
         ValidateEvents(document);
         if (document.Version != CollaborationContract.Version || document.TaskId != task.Id || document.RoomId != task.RoomId || document.Workspace != task.Workspace ||
+            document.Touches is null || document.Touches.Count > MaxTouches || document.Touches.Any(t => t is null || string.IsNullOrWhiteSpace(t.Path) || t.Path.Length > 512 || !Enum.IsDefined(t.Agent) || t.Generation < 0) ||
             document.Entries is null || document.Entries.Count > MaxMessages || document.LastSequence < 0 ||
             document.Evidence is null || document.Evidence.Count > 256 || document.Snapshots is null || document.Snapshots.Count > 1024 || document.Findings is null || document.Findings.Count > 512 ||
             document.ContextSections is null || document.ContextSections.Count > 16)
@@ -559,6 +591,8 @@ public sealed class CollaborationDispatch : ICollaborationTools
         Review results must match the incoming review scope exactly and cannot reuse a changed/incomplete snapshot.
         Keep finding IDs stable. After a fix, use mark_addressed with finding_id and explanation; this is a claim,
         not verification. Only a later peer review with fresh successful execution evidence may mark it checked.
+        When you disagree that a finding is valid or fixed, return it with disposition disputed and say why; a disputed
+        finding blocks assignment_complete until a later review resolves it. Do not pass quietly over a disagreement.
         Retry the same idempotency_key with unchanged content after an uncertain tool response. Do not submit another
         terminal message after acceptance. Give the user-facing explanation once; tool receipts need no separate acknowledgement.
         Finish with natural prose addressed to the user and match their requested

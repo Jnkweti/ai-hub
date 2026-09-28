@@ -41,13 +41,33 @@ public sealed partial class CollaborationStore
             var text = new StringBuilder(); var count = 0; var last = after; var truncated = false;
             var evicted = document.Events.Count > 0 ? document.Events[0].Sequence - after - 1 : document.LastEventSequence - after;
             if (evicted > 0) text.AppendLine($"[{evicted} earlier events were evicted from the stream; originals remain retrievable with get_context_records]");
+            // Tiering: user and peer entries arrive in full, a run of finished tool calls becomes one summary line, and a
+            // quiet pass is one line. The agent reads what matters and can page the rest with get_events.
+            var tools = new List<CollaborationEvent>();
+            void Flush()
+            {
+                if (tools.Count == 0) return;
+                var errors = tools.Count(t => t.Text.Contains("(error)") || t.Text.Contains("→ exit ") && !t.Text.Contains("→ exit 0"));
+                text.Append($"[{tools[0].Sequence}-{tools[^1].Sequence}] tools · {tools[0].Author}: {tools.Count} native tool call{(tools.Count == 1 ? "" : "s")} finished" +
+                    $"{(errors > 0 ? $", {errors} with errors" : "")}; latest: {Clip(tools[^1].Text, 200)}. Details: get_evidence.\n");
+                tools.Clear(); count++;
+            }
             foreach (var e in document.Events.Where(e => e.Sequence > after))
             {
                 if (e.Author == excludeAuthor) { last = e.Sequence; continue; }
-                var line = $"[{e.Sequence}] {e.Time:HH:mm:ss} {e.Kind} · {e.Author}{(e.Ref is null ? "" : " · ref " + e.Ref)}\n{e.Text}\n";
+                if (e.Kind == "tool")
+                {
+                    if (tools.Count > 0 && tools[0].Author != e.Author) Flush();
+                    tools.Add(e); last = e.Sequence; continue;
+                }
+                Flush();
+                var line = e.Kind == "agent_pass"
+                    ? $"[{e.Sequence}] {e.Time:HH:mm:ss} agent_pass · {e.Author}: passed.\n"
+                    : $"[{e.Sequence}] {e.Time:HH:mm:ss} {e.Kind} · {e.Author}{(e.Ref is null ? "" : " · ref " + e.Ref)}\n{e.Text}\n";
                 if (count >= limit || TaskContextBuilder.Bytes(text.ToString()) + TaskContextBuilder.Bytes(line) > byteBudget) { truncated = true; break; }
                 text.Append(line); last = e.Sequence; count++;
             }
+            if (!truncated) Flush();
             if (truncated) text.AppendLine($"[more events omitted; call get_events with after_sequence {last}]");
             return (last, text.ToString(), count);
         }

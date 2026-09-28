@@ -74,6 +74,9 @@ public class HubSettings
     public Agent StatusInspector { get; set; } = Agent.Codex;
     public bool ShowActivityDiagnostics { get; set; }
     public bool CollectLocalDiagnostics { get; set; } = true;
+    public int TurnInactivitySeconds { get; set; } = HubCoordinator.DefaultTurnInactivitySeconds;
+    /// <summary>Providers over their usage limit, by agent name, with the moment they become usable again.</summary>
+    public Dictionary<string, DateTimeOffset> ProviderUnavailableUntil { get; set; } = [];
 }
 
 public class SavedMessage

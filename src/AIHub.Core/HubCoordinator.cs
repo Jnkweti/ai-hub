@@ -85,6 +85,15 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     public event Action<CollaborationMessage>? StructuredMessage;
     private int maxAutoRounds = CollaborationGuard.DefaultMaxRounds;
     public int MaxAutoRounds { get => Volatile.Read(ref maxAutoRounds); set => Volatile.Write(ref maxAutoRounds, Math.Clamp(value, 1, 50)); }
+    // Inactivity watchdog: a turn with no provider events for this long is stopped, unless the provider is waiting on the user.
+    public const int DefaultTurnInactivitySeconds = 300;
+    private int turnInactivitySeconds = DefaultTurnInactivitySeconds;
+    public int TurnInactivitySeconds { get => Volatile.Read(ref turnInactivitySeconds); set => Volatile.Write(ref turnInactivitySeconds, Math.Clamp(value, 1, 3600)); }
+    private long lastActivity = Environment.TickCount64;
+    private int waitingForUser;
+    // Providers over their limit: the desktop remembers until when, so a participant is not dispatched to for nothing.
+    public Func<Agent, DateTimeOffset?>? ProviderUnavailableUntil { get; set; }
+    public event Action<Agent, DateTimeOffset, string>? ProviderUnavailable;
     public int ExchangeCount { get; private set; }
     public event Action<AgentEvent>? Event;
     public event Action<string, string, string>? Dispatch;
@@ -106,6 +115,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 {
                     if (clientEpoch != epoch) return;
                     lock (clientGate) if (!clients.TryGetValue(agent, out var current) || current != client) return;
+                    Volatile.Write(ref lastActivity, Environment.TickCount64);
                     if (e.Kind == EventKind.Tool && e.ItemId.Length > 0) toolEvents.AddOrUpdate(agent, 1, (_, count) => count + 1);
                     if (collaboration is not null && currentDispatch is { } live && live.Epoch == clientEpoch)
                         live.Dispatch.Enqueue(e, notice => Event?.Invoke(new(agent, EventKind.Status, notice)),
@@ -119,7 +129,9 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     ct.ThrowIfCancellationRequested();
                     if (clientEpoch != epoch) throw new OperationCanceledException(ct);
                     lock (clientGate) if (!clients.TryGetValue(agent, out var current) || current != client) throw new OperationCanceledException(ct);
-                    return RequestApproval is null ? new Decision(false) : await RequestApproval(a, ct);
+                    Interlocked.Increment(ref waitingForUser); // Waiting on the user is not provider inactivity.
+                    try { return RequestApproval is null ? new Decision(false) : await RequestApproval(a, ct); }
+                    finally { Interlocked.Decrement(ref waitingForUser); Volatile.Write(ref lastActivity, Environment.TickCount64); }
                 };
             }
             return client;
@@ -353,12 +365,23 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     .GroupBy(e => e.Message.Envelope.Generation).OrderByDescending(g => g.Key).FirstOrDefault();
                 var previousLead = previousRun?.OrderBy(e => e.Message.Envelope.Sequence).First().Message.Envelope.Sender;
                 var next = participants.Length == 1 ? participants[0] : ConversationTurns.AddressedSpeaker(prompt) ?? preferredSpeaker ?? CollaborationScheduler.First(prompt, previousLead, first);
+                // A participant whose provider said "not now" (usage limit, rate limit, credits) sits out the rest of the phase.
+                // One already known to be over its limit is not dispatched to at all.
+                var unavailable = new HashSet<Agent>(); var unavailableReason = "";
+                foreach (var p in participants)
+                    if (ProviderUnavailableUntil?.Invoke(p) is { } until && until > DateTimeOffset.Now)
+                    { unavailable.Add(p); unavailableReason = $"unavailable until {until.ToLocalTime():g} (provider limit)"; }
+                if (unavailable.Count == participants.Length)
+                    throw new IOException(string.Join(" and ", unavailable.Select(ConversationTurns.Name)) + " " + unavailableReason + ". Wait for the limit to reset or choose another agent.");
+                if (unavailable.Contains(next)) next = participants.First(p => !unavailable.Contains(p));
+                foreach (var p in unavailable) Event?.Invoke(new(p, EventKind.Status, $"{ConversationTurns.Name(p)} is {unavailableReason}; {ConversationTurns.Name(next)} continues alone."));
                 CollaborationStore.SynchronizeContext(claim, first, prompt);
                 promptReference = CollaborationStore.PromptReference(claim, prompt);
-                CollaborationStore.AppendEvent(claim, "system", "AI Hub", $"Phase started for {target}; {ConversationTurns.Name(next)} speaks first.");
+                CollaborationStore.AppendEvent(claim, "system", "AI Hub", $"Phase started for {target}; {ConversationTurns.Name(next)} speaks first." +
+                    (unavailable.Count == 0 ? "" : $" {string.Join(", ", unavailable.Select(ConversationTurns.Name))} is {unavailableReason}."));
                 initialCommon = await Task.Run(() => CollaborationStore.BuildCommon(claim, token), token);
                 // A greeting or acknowledgement gets one quick reply; preparing the other agent for it would be a wasted model turn.
-                if (participants.Length == 2 && PreparationFactory is not null && CollaborationScheduler.NeedsOptionalPeer(prompt))
+                if (participants.Length == 2 && PreparationFactory is not null && CollaborationScheduler.NeedsOptionalPeer(prompt) && !unavailable.Contains(ConversationTurns.Other(next)))
                     preparation = new(CollaborationStore, claim, ConversationTurns.Other(next), initialCommon, promptReference, PreparationFactory,
                         item => { if (Current()) Event?.Invoke(item); }, token);
                 Agent? previousAgent = null; var visible = ""; var turns = 0;
@@ -367,13 +390,11 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 var visibleReplies = new List<string>();
                 var phaseSessions = new HashSet<Agent>();
                 var counts = participants.ToDictionary(p => p, _ => (Contributions: 0, Passes: 0));
-                // A participant whose provider said "not now" (usage limit, rate limit, credits) sits out the rest of the phase.
-                var unavailable = new HashSet<Agent>(); var unavailableReason = "";
                 // Reaction rounds: every participant gets an opportunity to react to each new contribution or user message.
                 // The host orders the opportunities and enforces budgets; whether to speak is the participant's decision.
                 var opportunities = new LinkedList<(Agent Agent, string? IncomingId)>();
                 opportunities.AddLast((next, (string?)null));
-                foreach (var peer in participants.Where(p => p != next)) opportunities.AddLast((peer, (string?)null));
+                foreach (var peer in participants.Where(p => p != next && !unavailable.Contains(p))) opportunities.AddLast((peer, (string?)null));
                 void Offer(Agent agent, bool front = false)
                 {
                     if (unavailable.Contains(agent)) return;
@@ -401,6 +422,13 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         outcomeReason = unavailable.Count > 0
                             ? $"{ConversationTurns.Name(participants.First(p => !unavailable.Contains(p)))} finished; {ConversationTurns.Name(unavailable.First())} was unavailable: {unavailableReason}"
                             : "Every participant passed on the newest events. Their reports are not host certification of task completion.";
+                        // Completion gate: what the phase leaves outstanding is said plainly, for the user and for the next phase.
+                        if (CollaborationStore.PhaseSummary(claim) is { } outstanding)
+                        {
+                            CollaborationStore.AppendEvent(claim, "system", "AI Hub", outstanding);
+                            Event?.Invoke(new(next, EventKind.Status, outstanding));
+                            outcomeReason += " " + outstanding;
+                        }
                         break;
                     }
                     var slot = opportunities.First!.Value; opportunities.RemoveFirst();
@@ -455,6 +483,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         // instead of the whole run failing. A second unavailable provider still ends the run below.
                         CollaborationStore.FinishAssignment(claim, dispatch.Id, "failed");
                         unavailable.Add(next); unavailableReason = ex.Message.Length > 300 ? ex.Message[..300] : ex.Message;
+                        ProviderUnavailable?.Invoke(next, ProviderLimits.UnavailableUntil(ex.Message, DateTimeOffset.Now), unavailableReason);
                     }
                     catch
                     {
@@ -655,11 +684,30 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
         Dispatch?.Invoke(from, agent.ToString(), visible);
         Event?.Invoke(new(agent, EventKind.Status, "Working"));
         AgentReply reply;
-        try { reply = await client.SendAsync(prompt, token); }
+        Volatile.Write(ref lastActivity, Environment.TickCount64);
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var timedOut = false;
+        var send = client.SendAsync(prompt, idle.Token);
+        var watchdog = Task.Run(async () =>
+        {
+            while (!send.IsCompleted)
+            {
+                await Task.Delay(1000, idle.Token).ConfigureAwait(false);
+                var limit = TurnInactivitySeconds * 1000L;
+                if (Volatile.Read(ref waitingForUser) == 0 && Environment.TickCount64 - Volatile.Read(ref lastActivity) > limit) { timedOut = true; idle.Cancel(); return; }
+            }
+        });
+        try { reply = await send; }
+        catch (OperationCanceledException) when (timedOut && !token.IsCancellationRequested)
+        {
+            Diagnostic?.Invoke(AuditCode.TurnInactivity, agent);
+            throw new IOException($"{agent} produced no output for {TurnInactivitySeconds} seconds, so the turn was stopped. Check the provider, then send a message to continue.");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             throw new IOException(agent + ": " + ex.Message, ex);
         }
+        finally { idle.Cancel(); try { await watchdog; } catch (OperationCanceledException) { } }
         token.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(reply.Text)) throw new IOException(agent + " returned an empty reply.");
         Event?.Invoke(new(agent, EventKind.Session, reply.SessionId ?? ""));

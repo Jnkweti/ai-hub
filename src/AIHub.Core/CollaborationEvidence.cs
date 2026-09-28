@@ -36,6 +36,8 @@ public sealed partial class CollaborationStore
         if (item.Agent != dispatch.Agent || item.ItemId.Length == 0 || item.Kind is not (EventKind.Tool or EventKind.ToolOutput)) return null;
         JsonNode? detail;
         try { detail = item.Detail.Length == 0 ? null : JsonNode.Parse(item.Detail); } catch (JsonException) { return "Native evidence metadata was malformed; no evidence was recorded."; }
+        var touched = TouchedFiles(item, detail);
+        if (touched.Length > 0) return RecordTouches(dispatch, item.Agent, touched);
         var commandEvent = item.Kind == EventKind.Tool && (detail?.Str("type") == "commandExecution" || item.Agent == Agent.Claude && item.Text is "Bash" or "PowerShell" or "Read" or "Grep" or "Glob");
         var finished = item.Agent == Agent.Codex ? commandEvent && detail?.Str("status") is "completed" or "failed" or "declined" : item.Kind == EventKind.ToolOutput && detail?.Bool("isFinal") == true;
         var view = Use(dispatch, (task, document) => (task.Workspace, Old: document.Evidence.FirstOrDefault(e => e.DispatchId == dispatch.Id && e.SourceEventId == item.ItemId)));
@@ -79,6 +81,39 @@ public sealed partial class CollaborationStore
         });
     }
     private static string Clip(string value, int maximum) => value.Length <= maximum ? value : value[..maximum];
+    public const int MaxTouches = 512;
+    /// <summary>Files a native edit event names: Claude's Edit/Write tools, Codex's completed fileChange items.</summary>
+    private static string[] TouchedFiles(AgentEvent item, JsonNode? detail)
+    {
+        if (item.Kind != EventKind.Tool || detail is null) return [];
+        if (item.Agent == Agent.Claude && item.Text is "Edit" or "MultiEdit" or "Write" or "NotebookEdit")
+            return detail.Str("file_path") is { Length: > 0 } path ? [path] : detail.Str("notebook_path") is { Length: > 0 } notebook ? [notebook] : [];
+        if (item.Agent == Agent.Codex && detail.Str("type") == "fileChange" && detail.Str("status") == "completed" && detail["changes"] is JsonArray changes)
+            return changes.Select(c => c.Str("path")).Where(p => p.Length > 0).Distinct().ToArray();
+        return [];
+    }
+    // Edit collision: the second agent to change a file in a phase is told, once per file, and the stream records it for both.
+    private string? RecordTouches(CollaborationDispatch dispatch, Agent agent, string[] paths) => Use<string?>(dispatch, (task, original) =>
+    {
+        var document = Copy(original); var collided = new List<string>(); var generation = dispatch.Claim.Generation;
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(task.Workspace));
+        foreach (var raw in paths)
+        {
+            string full;
+            try { full = Path.GetFullPath(Path.IsPathRooted(raw) ? raw : Path.Combine(root, raw)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
+            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            var path = Path.GetRelativePath(root, full).Replace('\\', '/');
+            var other = document.Touches.LastOrDefault(t => t.Generation == generation && t.Agent != agent && string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase));
+            document.Touches.Add(new(path, agent, DateTimeOffset.UtcNow, generation));
+            while (document.Touches.Count > MaxTouches) document.Touches.RemoveAt(0);
+            var reference = "collision:" + (path.Length <= 140 ? path : path[^140..]);
+            if (other is null || document.Events.Any(e => e.Kind == "system" && e.Generation == generation && e.Ref == reference)) continue;
+            AppendEvent(document, "system", "AI Hub", $"Edit collision: {ConversationTurns.Name(other.Agent)} changed {path} earlier in this phase and {ConversationTurns.Name(agent)} has now changed it too. Both: re-read the file before further edits and say which change stands.", reference, generation, dispatch.Id);
+            collided.Add(path);
+        }
+        Save(document);
+        return collided.Count == 0 ? null : "Edit collision: both agents changed " + string.Join(", ", collided) + " in this phase.";
+    });
     private static JsonNode EvidencePage(CollaborationDocument document, JsonNode? args, CollaborationSnapshot current)
     {
         if (args is not JsonObject o || o.Count != 2 || !Integer(o["offset"], out var offset) || offset < 0 || offset > 256 ||
@@ -109,6 +144,9 @@ public sealed partial class CollaborationStore
             if (old is not null && old.File != finding.File) throw new CollaborationValidationException("Finding ID already belongs to another file.");
             if (finding.Disposition == "addressed" && old?.Disposition != "addressed")
                 throw new CollaborationValidationException("Use mark_addressed for author fix claims. New review findings must be open.");
+            // A recorded disagreement, not a silent pass: it stays visible in the common context until a later review resolves it.
+            if (finding.Disposition == "disputed" && (old is null || old.Disposition == "checked"))
+                throw new CollaborationValidationException("Disputed applies to an existing finding that is not yet checked; explain the disagreement in the finding.");
             if (finding.Disposition == "checked" && (old is null || old.Disposition != "addressed" || old.UpdatedBy == dispatch.Agent ||
                 !finding.EvidenceRefs.Any(id => document.Evidence.Any(e => e.Id == id && e.DispatchId == dispatch.Id && e.Finished && e.IsError != true &&
                     (e.ExitCode == 0 || e.Tool is "Read" or "Grep" or "Glob" && e.IsError == false) && StableEvidence(document, e, current)))))

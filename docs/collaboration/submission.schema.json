@@ -320,7 +320,8 @@
                     "enum": [
                       "open",
                       "addressed",
-                      "checked"
+                      "checked",
+                      "disputed"
                     ]
                   },
                   "evidence_refs": {

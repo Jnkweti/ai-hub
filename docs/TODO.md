@@ -3,26 +3,26 @@
 Maintained by hand. Each item names where the idea came from, what it becomes in AI Hub, and a rough size
 (S = a day or less, M = a few days, L = its own release). Check items off in the commit that ships them.
 
-## Batch 1 — responsiveness and safety (target: 0.18.0)
+## Batch 1 — responsiveness and safety (shipped as 0.18.0, see `PEER-FEATURES-0.18.0.md`)
 
-- [ ] **Per-turn inactivity watchdog** (from AgentBridge). A turn with no provider events for N seconds (default 300)
+- [x] **Per-turn inactivity watchdog** (from AgentBridge). A turn with no provider events for N seconds (default 300)
   is cancelled and the phase pauses with "no activity for N seconds", instead of hanging until Stop. Adapters'
   `SendAsync`; setting for N. S.
-- [ ] **Quota-aware scheduling** (from agent-quota-guard). Parse the reset time from a limit message ("try again at
+- [x] **Quota-aware scheduling** (from agent-quota-guard). Parse the reset time from a limit message ("try again at
   …"), store "unavailable until" per provider, skip dispatching to it until then without starting a process, show a
   countdown on the agent card, clear automatically. Extends the 0.17.0 sidelining. S.
-- [ ] **Stream event tiering** (from AgentBridge's IMPORTANT / STATUS / FYI). In delta prompts, user messages and peer
+- [x] **Stream event tiering** (from AgentBridge's IMPORTANT / STATUS / FYI). In delta prompts, user messages and peer
   conclusions arrive in full, tool completions are batched into counts, noise is omitted. `LiveStream.EventsSince`. S.
-- [ ] **Edit collision detection** (from hcom, Concord). When both residents touch the same file within a phase
+- [x] **Edit collision detection** (from hcom, Concord). When both residents touch the same file within a phase
   (Edit/Write and fileChange tool events already carry paths), post a "collision" stream event and a status to both.
   `CollaborationEvidence.Observe`. S.
-- [ ] **Phase completion gate** (from agent-bridge-mesh's export gate). At phase end, summarise unanswered peer
+- [x] **Phase completion gate** (from agent-bridge-mesh's export gate). At phase end, summarise unanswered peer
   questions, open or stale findings and undelivered requests as a system event and in the outcome reason, instead of
   "everyone passed". `HubCoordinator` phase end. S.
-- [ ] **Disputed findings** (from agent-bridge-mesh's disagreement records). A `disputed` finding disposition so a
+- [x] **Disputed findings** (from agent-bridge-mesh's disagreement records). A `disputed` finding disposition so a
   reviewer can record disagreement instead of passing quietly; disputes stay in the common context until resolved.
   Contract + `ValidateEvidenceAndReview` + `TaskContextBuilder.Build`. S.
-- [ ] **Review packet export** (from Concord's REVIEW_PACKET.md and CCB's shared memory file). Generate a per-task
+- [x] **Review packet export** (from Concord's REVIEW_PACKET.md and CCB's shared memory file). Generate a per-task
   markdown packet (scope, evidence, findings, freshness, decisions, undelivered requests) from the ledger; offer it
   from the Tasks window and the Export button. `CollaborationPresentation`. S.
 

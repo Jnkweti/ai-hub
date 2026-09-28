@@ -77,7 +77,7 @@ public partial class MainWindow : Window
         var selected = rooms.FirstOrDefault(r => r.Id == settings.LastRoomId) ?? rooms.FirstOrDefault(r => !r.IsArchived) ?? rooms[0];
         RoomFilter.SelectedIndex = selected.IsArchived ? 1 : 0;
         ready = true; RoomList.SelectedItem = selected; AutoToggle.IsChecked = settings.AutoExchange;
-        saveTimer.Tick += (_, _) => { if (dirty) Save(); RefreshTaskSummary(); CheckRuntimeAudit(); }; saveTimer.Start(); Loaded += Window_Loaded;
+        saveTimer.Tick += (_, _) => { if (dirty) Save(); RefreshTaskSummary(); CheckRuntimeAudit(); ReflectAvailability(); }; saveTimer.Start(); Loaded += Window_Loaded;
         if (store.RecoveryNotices.Count > 0) StateLabel.Text = string.Join("\n", store.RecoveryNotices);
         // Ledgers are recovered on first use; the startup pass runs in the background instead of blocking the window.
         collaborationStore.RecoveryNotice += notice => Dispatcher.BeginInvoke(() => { audit.Record(AuditCode.RecoveryNotice); StateLabel.Text = notice; });
@@ -128,7 +128,8 @@ public partial class MainWindow : Window
             ? new CodexClient(codexOptions, room.CodexSession)
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
         {
-            AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
+            AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TurnInactivitySeconds = settings.TurnInactivitySeconds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
+            ProviderUnavailableUntil = agent => settings.ProviderUnavailableUntil.TryGetValue(agent.ToString(), out var until) && until > DateTimeOffset.Now ? until : null,
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
             CollaborationWorkflowDirectory = Path.Combine(AppContext.BaseDirectory, "plugins", "ai-hub-collaboration"),
@@ -152,6 +153,11 @@ public partial class MainWindow : Window
             finally { audit.Waiting(room.Id, false); }
         };
         coordinator.Diagnostic += (code, agent) => audit.Record(code, room.Id, coordinator.TaskId, agent);
+        coordinator.ProviderUnavailable += (agent, until, reason) => Dispatcher.BeginInvoke(() =>
+        {
+            settings.ProviderUnavailableUntil[agent.ToString()] = until; Save(); ReflectAvailability();
+            AddActivity("Hub", ConversationTurns.Name(agent) + " unavailable until " + until.ToLocalTime().ToString("g"), reason);
+        });
         bool IsCurrentHub() => ReferenceEquals(current, room) && ReferenceEquals(hub, coordinator) && !room.IsArchived;
         bool IsOwned() => workers.TryGetValue(room.Id, out var live) && ReferenceEquals(live, worker) && !room.IsArchived;
         coordinator.StructuredMessage += message => Dispatcher.BeginInvoke(() =>
@@ -298,6 +304,24 @@ public partial class MainWindow : Window
         if (item.Kind == EventKind.Error) { StateLabel.Text = item.Text; SetAgentState(item.Agent, "Needs attention", false); }
         try { store.AppendActivity(current.Id, item); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { StateLabel.Text = "Activity log: " + ex.Message; }
     }
+    // A provider over its limit shows as unavailable with the reset time; the entry clears itself once that time has passed.
+    private void ReflectAvailability()
+    {
+        var now = DateTimeOffset.Now; var changed = false;
+        foreach (var agent in Enum.GetValues<Agent>())
+        {
+            var key = agent.ToString(); var label = agent == Agent.Codex ? CodexStatus : ClaudeStatus; var detail = agent == Agent.Codex ? CodexDetail : ClaudeDetail;
+            if (settings.ProviderUnavailableUntil.TryGetValue(key, out var until) && until > now)
+            {
+                if (!(agent == Agent.Codex ? codexWorking : claudeWorking)) SetAgentState(agent, "Unavailable", false);
+                var remaining = until - now; var local = until.ToLocalTime();
+                detail.Text = "Until " + (local.Date == now.Date ? local.ToString("t") : local.ToString("ddd d MMM, t")) + (remaining.TotalHours >= 1 ? $" · {(int)remaining.TotalHours} h {remaining.Minutes} m left" : $" · {Math.Max(1, (int)remaining.TotalMinutes)} m left");
+                detail.ToolTip = detail.Text;
+            }
+            else if (settings.ProviderUnavailableUntil.Remove(key)) { changed = true; if (label.Text == "Unavailable") SetAgentState(agent, "Standby", false); }
+        }
+        if (changed) Save();
+    }
     // Status to agent-card mapping, shared by live events and the replay when a room is reopened; the replay must not log again.
     private void ReflectStatus(AgentEvent item)
     {
@@ -344,6 +368,12 @@ public partial class MainWindow : Window
     {
         if (explicitPrompt is null && activeQuestion is { } question) { SubmitQuestion(question); return; }
         if (switching || sending || closing || current.IsArchived || string.IsNullOrWhiteSpace(explicitPrompt ?? Composer.Text)) return;
+        // A single recipient that is over its limit gets no process started; the message stays in the composer.
+        if (Target.SelectedIndex is 1 or 2 && settings.ProviderUnavailableUntil.TryGetValue(Target.SelectedIndex == 1 ? "Codex" : "Claude", out var unavailableUntil) && unavailableUntil > DateTimeOffset.Now)
+        {
+            StateLabel.Text = $"{(Target.SelectedIndex == 1 ? "Codex" : "Claude Code")} is unavailable until {unavailableUntil.ToLocalTime():g}. Send to {(Target.SelectedIndex == 1 ? "Claude" : "Codex")} or to Both.";
+            return;
+        }
         sending = true; UpdateConversationControls(); var prompt = (explicitPrompt ?? Composer.Text).Trim();
         if (explicitPrompt is null) Composer.Clear();
         try
@@ -507,7 +537,7 @@ public partial class MainWindow : Window
         Welcome.Visibility = messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ChatScroll.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         StateLabel.Text = current.IsArchived ? "Archived · restore this conversation to continue" : current.PauseReason.Length > 0 ? "Paused · send a message to resume" : "Ready · send a message to begin";
-        SetAgentState(Agent.Codex, "Standby", false); SetAgentState(Agent.Claude, "Standby", false); SetPause(current.PauseReason);
+        SetAgentState(Agent.Codex, "Standby", false); SetAgentState(Agent.Claude, "Standby", false); SetPause(current.PauseReason); ReflectAvailability();
         if (workers.TryGetValue(current.Id, out var worker))
         {
             if (worker.State != "Ready") UpdateState(worker.State);
@@ -571,7 +601,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();
@@ -648,6 +678,7 @@ public partial class MainWindow : Window
             "Needs attention" => "Check the activity details",
             "Needs your input" => "Answer in the chat",
             "Standby" => "Ready for your direction",
+            "Unavailable" => "Provider limit reached",
             "Inspecting project" => "Owns the project status inspection",
             "Reviewing findings" => "Checking the inspector's evidence",
             "Waiting for inspection" => "Review starts when findings arrive",

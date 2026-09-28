@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md).
 
+Version **0.18.0** ships the first batch from that list: an inactivity watchdog that stops a silent turn, quota-aware scheduling that remembers when a provider's limit resets and skips it until then, tiered delta prompts, edit collision detection between the two agents, a phase completion gate that names what is left outstanding, a disputed finding disposition, and a review packet export. See [peer features 0.18.0](docs/PEER-FEATURES-0.18.0.md).
+
 Version **0.17.0** makes replies faster: workspace fingerprints reuse the hash of every unchanged file, a provider that is over its usage limit sits out the phase while the other agent still answers, and casual greetings get one quick reply. See [responsiveness 0.17.0](docs/RESPONSIVENESS-0.17.0.md).
 
 Version **0.16.0** finishes the design review: large files no longer make reviews impossible, a stopped run cannot disturb the next one, a re-keyed native session is reported instead of killing the provider, ledgers are recovered on first use with a bounded cache, conversation records are archived at the cap instead of stopping the task, shared checks can be reused after a restart, and the desktop saves and refreshes only when something changed. See [hardening 0.16.0](docs/HARDENING-0.16.0.md).

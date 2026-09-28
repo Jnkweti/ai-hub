@@ -54,6 +54,20 @@ public partial class MainWindow
         var resume = Button("SelectTaskButton", "Use this task");
         var create = Button("NewTaskButton", "New task");
         var evidence = Button("TaskEvidenceButton", "Check evidence");
+        var packet = Button("ReviewPacketButton", "Review packet");
+        packet.Click += async (_, _) =>
+        {
+            if (list.SelectedItem is not TaskRow row) return;
+            packet.IsEnabled = false;
+            try
+            {
+                var markdown = await Task.Run(() => collaborationStore.ReviewPacket(row.Task.Id, CancellationToken.None));
+                var picker = new Microsoft.Win32.SaveFileDialog { Filter = "Markdown|*.md", FileName = "AI-Hub-review-packet-" + row.Task.Id[..8] + ".md" };
+                if (picker.ShowDialog(window) == true) { File.WriteAllText(picker.FileName, markdown); notice.Text = "Review packet saved: " + picker.FileName; }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notice.Text = "Review packet failed: " + ex.Message; }
+            finally { packet.IsEnabled = true; }
+        };
         var context = Button("SharedContextButton", "Shared context");
         context.Click += async (_, _) =>
         {

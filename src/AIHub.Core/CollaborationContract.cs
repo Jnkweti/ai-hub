@@ -78,7 +78,7 @@ public static class CollaborationContract
                 {
                     ["id"] = Identifier(), ["severity"] = Choice("info", "low", "medium", "high", "critical"),
                     ["file"] = RelativePath(), ["line"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = 10000000 },
-                    ["explanation"] = Text(2000), ["disposition"] = Choice("open", "addressed", "checked"),
+                    ["explanation"] = Text(2000), ["disposition"] = Choice("open", "addressed", "checked", "disputed"),
                     ["evidence_refs"] = ArrayOf(Identifier(), 16)
                 }, ["id", "severity", "file", "line", "explanation", "disposition", "evidence_refs"]), 32);
             }

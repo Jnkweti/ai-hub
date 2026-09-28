@@ -39,6 +39,10 @@ public sealed class SettingsWindow : Window
         var rounds = new TextBox { Name = "MaxRoundsInput", Text = Math.Clamp(Settings.MaxAutoRounds,1,50).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         roundRow.Children.Add(rounds); roundRow.Children.Add(new TextBlock { Text = "automatic rounds before pausing", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(roundRow);
         Description("One round is one turn per agent. Choose 1–50; you can continue after reviewing their progress.");
+        var idleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var idle = new TextBox { Name = "TurnInactivityInput", Text = Math.Clamp(Settings.TurnInactivitySeconds, 30, 3600).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
+        idleRow.Children.Add(idle); idleRow.Children.Add(new TextBlock { Text = "seconds without provider output before a turn is stopped", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(idleRow);
+        Description("A stuck provider pauses the conversation with a reason instead of waiting forever. Waiting for your approval or answer does not count. Choose 30–3600.");
         panel.Children.Add(new TextBlock { Text = "Project status inspector", FontWeight = FontWeights.SemiBold, Margin = new(0,8,0,8) });
         var inspector = new ComboBox { Name = "StatusInspectorInput", SelectedIndex = Settings.StatusInspector == Agent.Claude ? 1 : 0, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 170 };
         inspector.Items.Add("Codex"); inspector.Items.Add("Claude Code");
@@ -102,6 +106,8 @@ public sealed class SettingsWindow : Window
         save.Click += (_, _) =>
         {
             if (!int.TryParse(rounds.Text,out var count) || count is < 1 or > 50) { status.Text = "Enter a whole number between 1 and 50 for automatic rounds."; rounds.Focus(); rounds.SelectAll(); return; }
+            if (!int.TryParse(idle.Text, out var seconds) || seconds is < 30 or > 3600) { status.Text = "Enter a whole number between 30 and 3600 seconds for the inactivity limit."; idle.Focus(); idle.SelectAll(); return; }
+            Settings.TurnInactivitySeconds = seconds;
             Settings.CodexPath = codex.Text.Trim(); Settings.ClaudePath = claude.Text.Trim();
             Settings.CodexModel = codexModel.Text.Trim(); Settings.ClaudeModel = claudeModel.Text.Trim();
             Settings.AllowEdits = edits.IsChecked == true; Settings.ReduceMotion = reduced.IsChecked == true; Settings.MaxAutoRounds = count;

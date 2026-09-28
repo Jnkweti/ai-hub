@@ -69,6 +69,27 @@ internal static class CollaborationEvidenceTests
             f.Submit(reviewer, result); Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "checked", "Peer check did not advance finding");
             return Task.CompletedTask;
         });
+        await test("a reviewer can dispute a finding instead of passing, and a disputed finding blocks completion", () =>
+        {
+            using var f = new Fixture();
+            var invented = Message("review_result", Agent.Codex, "x"); Finding(invented, "disputed", []);
+            var author = f.Open(Agent.Codex); var request = f.Submit(author, Message("review_request"));
+            var reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            var first = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(first, "disputed", []);
+            Reject(() => f.Call(reviewer, "submit_message", first)); // Nothing to dispute yet.
+            Finding(first, "open", []); var review = f.Submit(reviewer, first);
+            author = f.Open(Agent.Codex, review.Envelope.MessageId);
+            f.Call(author, "mark_addressed", new JsonObject { ["finding_id"] = "finding-1", ["explanation"] = "Not a bug: the boundary is exclusive by design." });
+            request = f.Submit(author, Message("review_request", Agent.Claude, review.Envelope.MessageId)); reviewer = f.Open(Agent.Claude, request.Envelope.MessageId);
+            var second = Message("review_result", Agent.Codex, request.Envelope.MessageId); Finding(second, "disputed", []);
+            review = f.Submit(reviewer, second);
+            Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "disputed", "Dispute was not recorded");
+            author = f.Open(Agent.Codex, review.Envelope.MessageId);
+            var done = CollaborationRoutingTests.Message(status: "assignment_complete", replyTo: review.Envelope.MessageId);
+            Reject(() => f.Call(author, "submit_message", done)); // The disagreement must be resolved first.
+            Check(f.Store.Read(f.Claim.TaskId).Findings.Single().Disposition == "disputed", "Completion cleared the dispute");
+            return Task.CompletedTask;
+        });
         await test("a large asset keeps snapshots complete, and a stale review terminal is set aside for resubmission", () =>
         {
             // A 9 MiB file is fingerprinted by size and time; it no longer makes the snapshot incomplete. Changing a file
