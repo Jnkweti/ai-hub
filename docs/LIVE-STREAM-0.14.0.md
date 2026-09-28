@@ -68,4 +68,16 @@ requests already give a participant the next opportunity.
   limit (reset October 3, 2026). The host recorded the assignment and input as failed and paused the room with
   the provider's message, which is the intended failure behaviour. The check's final assertions were not reached;
   it should be rerun once the quota resets.
-- Installation: PENDING.
+- Clean checkout of commit `27f9bca` cloned to a short temp path: Release build with zero warnings and zero
+  errors; **205 tests passed** in 66 seconds (`artifacts\live-stream-014-clean-build.txt`,
+  `artifacts\live-stream-014-clean-tests.txt`).
+- Final package rebuilt from the committed tree: `artifacts\live-stream-014-release`, product version
+  `0.14.0+27f9bca…`, 611 files, Core DLL SHA-256 `3BCB05A0499A3B3B913285AAA6E3F3656290E5330152F9E4FA89773506530E4D`;
+  the diagnostics smoke check passed against it.
+- Installed **0.14.0.0** on September 28, 2026 with the user's approval, accepting the partial reaction-round live
+  check. The host closed the idle app itself after confirming zero running or owned tasks and zero child
+  processes. All **611** package files matched the candidate and all **nine** production profile files were
+  unchanged. Backups: `artifacts\before-collaboration-20260928-150440.zip` and
+  `artifacts\before-collaboration-data-20260928-150440.zip`. Reopened the normal profile as 0.14.0.0 with zero
+  running tasks and zero child processes. Evidence: `artifacts\live-stream-014-install-result.json` and
+  `artifacts\live-stream-014-reopen-result.json`.
