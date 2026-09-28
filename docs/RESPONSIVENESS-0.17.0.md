@@ -1,7 +1,7 @@
 # Responsiveness — 0.17.0
 
 Why a one-word message took a minute, measured from the activity log of a real conversation on September 28, 2026
-(the "fanfic generator" workspace: 3,277 git-listed files, 134 MB):
+(a personal writing project: 3,277 git-listed files, 134 MB):
 
 | Seconds after send | What happened |
 | --- | --- |
