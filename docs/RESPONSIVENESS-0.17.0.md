@@ -34,4 +34,10 @@ Three fixes, one per cause:
   (about 30 seconds there); every later capture costs a listing and a stat per file. A greeting runs one agent turn.
   Codex over its weekly limit no longer stops Claude from answering; Codex's limit resets on October 3, 2026.
 - Live provider check: not run; the Codex account is over its limit until October 3, 2026.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `ab158b2` at a short temporary path built with zero warnings and passed all 221 tests
+  against its own packaged bridge.
+- Installed on September 28, 2026 after the idle 0.16.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\responsiveness-017-install-result.json` (611 files verified, package hashes match, 10 profile
+  files verified, production data unchanged, backups `before-collaboration-20260928-172444.zip` and
+  `before-collaboration-data-20260928-172444.zip`). Reopened as 0.17.0.0 with 4 rooms and 1 task intact:
+  `artifacts\responsiveness-017-reopen-result.json`.

@@ -5,5 +5,5 @@
 - [x] Casual greetings get one reply and no preparation session.
 - [x] Regression cases added; existing suite passes.
 - [x] Package built and desktop smoke checks passed.
-- [ ] Clean checkout built and passed the full suite.
-- [ ] Installed with the user's approval.
+- [x] Clean checkout built and passed the full suite.
+- [x] Installed with the user's approval (September 28, 2026) and reopened as 0.17.0.0.
