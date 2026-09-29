@@ -73,14 +73,19 @@ internal static class CollaborationRoutingLiveCheck
                     "schema_version '1.0', a new idempotency_key, scope {files:[],focus:[]}, evidence_refs [], blockers []. There is no incoming message, so omit reply_to and recipient. End after acceptance. Do not use other tools.";
                 await hub.SubmitAsync(continuation, author.ToString()); await Finish();
                 document = store.Read(taskId);
-                // A new user message is a phase boundary: a fresh native session reconstructed from the ledger, one new provider process.
-                if (starts.Count != 3 || sessions[author] == priorSession || document.Entries.Count != 4 || document.LastSequence != lastSequence + 1 ||
+                // A new user message is a phase boundary: one new provider process that resumes the author's native session (0.26.0 session
+                // carry) and receives a delta prompt carrying the new message instead of the full core.
+                var continuationInput = document.ContextInputs.Where(i => i.Agent == author).OrderBy(i => i.PreparedAt).Last();
+                if (starts.Count != 3 || sessions[author] != priorSession || document.Entries.Count != 4 || document.LastSequence != lastSequence + 1 ||
                     document.Entries.Last().Message.Envelope.Generation <= entries.Last().Message.Envelope.Generation || memory.Get(taskId)!.State != WorkState.Ready)
-                    throw new IOException("Explicit continuation did not start a fresh phase with a durable sequence.");
+                    throw new IOException("Explicit continuation did not resume the native session in a new phase with a durable sequence.");
+                if (continuationInput.NativeSession != priorSession || !continuationInput.Prompt.Contains("NEW EVENTS SINCE YOUR LAST TURN") || continuationInput.Prompt.Contains("AI HUB COMMON TASK CONTEXT") ||
+                    !continuationInput.Prompt.Contains("CURRENT USER MESSAGE") || continuationInput.Outcome != "responded")
+                    throw new IOException("The continuation turn did not run on the carried session with a delta prompt.");
                 if (!events.Any(e => JsonSerializer.Serialize(e).Contains("get_messages", StringComparison.Ordinal)))
                     throw new IOException("The explicit continuation did not visibly use get_messages.");
                 results.Add(new { author = author.ToString(), taskId, sessions, document, events = events.ToArray() });
-                Console.WriteLine("PASS explicit " + author + " continuation: fresh phase, historical retrieval, new generation and sequence");
+                Console.WriteLine("PASS explicit " + author + " continuation: carried session, delta prompt, historical retrieval, new generation and sequence");
 
                 async Task Finish()
                 {

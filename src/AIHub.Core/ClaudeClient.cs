@@ -22,6 +22,14 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     private readonly object turnGate = new(); // Per-turn state is reset by the run thread and written by the reader thread.
     private void Emit(EventKind kind, string message, string id = "", string detail = "") => Event?.Invoke(new(Agent, kind, message, id, detail));
 
+    /// <summary>
+    /// Read-only rooms run Claude Code in plan mode. Twice in live checks the model concluded that plan mode also forbade the
+    /// host's submit_message tool and asked the user instead of finishing its structured turn; this note says what plan mode means here.
+    /// </summary>
+    public const string ReadOnlyNote = "READ-ONLY MODE: this session runs in plan mode so that no file, shell or system state changes. " +
+        "The ai_hub MCP tools are the host's message channel, not workspace changes: they are pre-approved in this mode and you must use them, " +
+        "including submit_message for your one terminal structured message. Do not ask the user for permission to submit it, and do not report " +
+        "plan mode as a blocker.";
     public async Task ConnectAsync(CancellationToken token)
     {
         if (wire is { Alive: true }) return;
@@ -31,7 +39,7 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
         wire.Failed += ex => { requests.CancelAll(); turn?.TrySetException(ex); Emit(EventKind.Error, ex.Message); };
         var args = new List<string> { "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", options.AllowEdits ? "manual" : "plan",
-            "--append-system-prompt", options.PreparationOnly ? ConversationPreparation.Instructions : HubCoordinator.AgentInstructions + (options.Collaboration is { } host ? "\n\n" + host.Instructions : "") };
+            "--append-system-prompt", options.PreparationOnly ? ConversationPreparation.Instructions : HubCoordinator.AgentInstructions + (options.Collaboration is { } host ? "\n\n" + host.Instructions + (options.AllowEdits ? "" : "\n\n" + ReadOnlyNote) : "") };
         if (options.PreparationOnly) args.AddRange(["--tools", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}"]);
         else if (!options.AllowEdits) args.AddRange(["--tools", "Read,Glob,Grep,AskUserQuestion"]);
         if (options.Collaboration is { } collaboration)

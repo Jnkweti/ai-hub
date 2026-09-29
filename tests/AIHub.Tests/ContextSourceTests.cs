@@ -56,7 +56,8 @@ internal static class ContextSourceTests
             var cursors = new List<ConversationCursor>();
             await using var hub = f.Hub((_, host, _, prompt, _) =>
             {
-                Check(TaskContextBuilder.Bytes(prompt) < 30000 && prompt.Contains("read_context_source"), "Unbounded user message reached provider");
+                // A carried session's later phase gets a delta prompt; the source pointer and its instructions were delivered when the session began.
+                Check(TaskContextBuilder.Bytes(prompt) < 30000 && (prompt.Contains("read_context_source") || prompt.Contains("NEW EVENTS SINCE YOUR LAST TURN")), "Unbounded user message reached provider");
                 Check(Tool(host, "read_context_source", Args("chat:transcript", query: "ALPHA"))["matches"]![0]!.Str("text").Contains("ORCHID-714"), "Provider lost source access");
                 Tool(host, "submit_message", Message()); return Task.FromResult("One useful contribution " + f.Calls);
             });

@@ -13,7 +13,16 @@ public class ConversationCursor
     public string? SessionId { get; set; }
     public string[] MessageIds { get; set; } = [];
     public Dictionary<string, string> MessageHashes { get; set; } = [];
-    public ConversationCursor Copy() => new() { SessionId = SessionId, MessageIds = MessageIds.ToArray(), MessageHashes = new(MessageHashes ?? []) };
+    // Structured phases: the task whose common context this native session received, the last stream event it was shown,
+    // and the host input bytes fed to the session so far. Together they decide whether the next phase resumes the session.
+    public string? TaskId { get; set; }
+    public long? StreamSequence { get; set; }
+    public long SessionInputBytes { get; set; }
+    public ConversationCursor Copy() => new()
+    {
+        SessionId = SessionId, MessageIds = MessageIds.ToArray(), MessageHashes = new(MessageHashes ?? []),
+        TaskId = TaskId, StreamSequence = StreamSequence, SessionInputBytes = SessionInputBytes
+    };
 }
 public record Decision(bool Allow, string Answer = "");
 public record QuestionChoice(string Label, string Description);

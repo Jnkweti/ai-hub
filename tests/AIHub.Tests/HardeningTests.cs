@@ -569,6 +569,63 @@ internal static class HardeningTests
             var task = f.Memory.Get(f.TaskId)!;
             Check(task.State == WorkState.Failed && f.Calls == 3 && task.Reason.Contains("closed its output"), $"Circuit breaker did not trip after the last backoff: {task.State} calls={f.Calls} {task.Reason}");
         });
+        // 0.26.0: addressed messages and session carry across phases.
+        await test("a message that names one agent skips preparation and the peer's reaction turn", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var prepared = 0; var statuses = new List<string>();
+            await using var hub = f.Hub((_, host, _, _, _) => { CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Start with the storage layer."); });
+            hub.PreparationFactory = agent => { Interlocked.Increment(ref prepared); return new ScriptedAgent(agent, [], "tentative notes"); };
+            hub.Event += e => { if (e.Kind == EventKind.Status) lock (statuses) statuses.Add(e.Text); };
+            await hub.SubmitAsync("Claude, what should I start with?", "Both"); await f.Finished();
+            var task = f.Memory.Get(f.TaskId)!;
+            Check(task.State == WorkState.Ready && f.Calls == 1 && f.Speakers.SequenceEqual([Agent.Claude]) && prepared == 0, $"The unaddressed peer was prepared or dispatched: calls={f.Calls} prepared={prepared} {task.Reason}");
+            Check(task.Reason.Contains("did not ask Codex for anything") && statuses.Contains("Not addressed; no reaction turn") && !statuses.Contains("Listening") &&
+                f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "system" && e.Text.Contains("addresses Claude Code")), "The addressed shortcut was not reported: " + task.Reason);
+        });
+        await test("an addressed agent whose reply asks its teammate still hands over", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture();
+            await using var hub = f.Hub((agent, host, _, _, _) =>
+            {
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message());
+                return Task.FromResult(agent == Agent.Claude ? "I would start with storage.\nPassing to Codex." : "Agreed, and add a migration step.");
+            });
+            await hub.SubmitAsync("Claude, what should I start with?", "Both"); await f.Finished();
+            Check(f.Speakers.SequenceEqual([Agent.Claude, Agent.Codex]) && f.Memory.Get(f.TaskId)!.State == WorkState.Ready, "A reply that asked the peer did not reach it: " + string.Join(",", f.Speakers) + " " + f.Memory.Get(f.TaskId)!.Reason);
+            Check(ConversationTurns.AsksPeer("Codex, can you check the parser?", Agent.Codex) && ConversationTurns.AsksPeer("Any objections, @codex?", Agent.Codex) &&
+                !ConversationTurns.AsksPeer("Codex already covered the parser, so nothing to add.", Agent.Codex) && !ConversationTurns.AsksPeer("Passing to Codex.", Agent.Claude), "AsksPeer matched the wrong replies");
+        });
+        await test("a carried session is trusted only when the provider resumed the cursor's session, and single-agent phases carry too", async () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var prompts = new List<(bool Fresh, string Prompt)>(); ConversationCursor? saved = null;
+            await using var hub = f.Hub((_, host, _, prompt, _) =>
+            {
+                lock (prompts) prompts.Add((host.StartFreshSession, prompt));
+                CollaborationRoutingTests.Tool(host, "submit_message", CollaborationRoutingTests.Message()); return Task.FromResult("Done.");
+            });
+            hub.ContextSynchronized += (agent, cursor) => { if (agent == Agent.Codex) saved = cursor; };
+            hub.RestoreContext(Agent.Codex, new ConversationCursor { SessionId = "a-session-the-provider-lost", TaskId = f.TaskId, StreamSequence = 0 });
+            await hub.SubmitAsync("Do the work", "Codex"); await f.Finished();
+            Check(prompts.Count == 1 && !prompts[0].Fresh && prompts[0].Prompt.Contains("AI HUB COMMON TASK CONTEXT") && !prompts[0].Prompt.Contains("NEW EVENTS SINCE YOUR LAST TURN"), "A session the provider did not resume was treated as carried");
+            Check(saved is { SessionId: "Codex-native-fixture", StreamSequence: not null, SessionInputBytes: > 0 } && saved.TaskId == f.TaskId, "The cursor did not record the session carry state");
+            await hub.SubmitAsync("Do more", "Codex"); await f.Finished();
+            Check(prompts.Count == 2 && !prompts[1].Fresh && prompts[1].Prompt.Contains("NEW EVENTS SINCE YOUR LAST TURN") && prompts[1].Prompt.Contains("CURRENT USER MESSAGE") && prompts[1].Prompt.Contains("Do more") && !prompts[1].Prompt.Contains("AI HUB COMMON TASK CONTEXT"),
+                "A single-agent phase did not carry the session with the new user message");
+            Check(saved!.SessionInputBytes > prompts[0].Prompt.Length && f.Memory.Get(f.TaskId)!.State == WorkState.Ready, "The session input total did not accumulate across phases");
+        });
+        await test("saved-state repair keeps the session carry fields and drops invalid values", () =>
+        {
+            var room = new Room
+            {
+                CodexContext = new() { SessionId = "s", TaskId = "task-1", StreamSequence = 7, SessionInputBytes = 1234 },
+                ClaudeContext = new() { SessionId = "t", TaskId = new string('x', 200), StreamSequence = -3, SessionInputBytes = -1 }
+            };
+            SavedStateRepair.Rooms([room]);
+            Check(room.CodexContext is { TaskId: "task-1", StreamSequence: 7, SessionInputBytes: 1234 } && room.ClaudeContext is { TaskId: null, StreamSequence: null, SessionInputBytes: 0 }, "Carry fields were not repaired");
+            var copy = room.CodexContext.Copy();
+            Check(copy.TaskId == "task-1" && copy.StreamSequence == 7 && copy.SessionInputBytes == 1234, "Copy dropped the carry fields");
+            return Task.CompletedTask;
+        });
     }
 }
 

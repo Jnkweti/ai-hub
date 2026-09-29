@@ -53,6 +53,8 @@ public static class ConversationTurns
         var asks = agents.ToDictionary(a => a, a => string.Join(" ", mentions.Where(m => m.Agent == a && m.Ask.Length > 0).Select(m => m.Ask)));
         return asks.Values.All(v => v.Length > 0) ? asks : null;
     }
+    /// <summary>Whether a reply asks the named peer for something: a handoff line, an opening or closing address, or an @mention.</summary>
+    public static bool AsksPeer(string reply, Agent peer) => Handoff(reply) == peer || AddressedSpeaker(reply) == peer;
     public static Agent? Handoff(string reply) => LastLine(reply).ToLowerInvariant() switch
     {
         "passing to codex." or "passing to codex" or "over to codex." or "over to codex" => Agent.Codex,

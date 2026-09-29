@@ -116,7 +116,9 @@ internal static class CollaborationRoutingTests
                 await using var hub = f.Hub((_, host, _, _, _) => { Tool(host, "submit_message", Message()); return Task.FromResult("A useful contribution."); });
                 await hub.SubmitAsync(run == 2 ? "Claude, discuss the tradeoff" : "Discuss the tradeoff", "Both"); await f.Finished();
             }
-            Check(f.Speakers.SequenceEqual([Agent.Codex, Agent.Claude, Agent.Claude, Agent.Codex, Agent.Claude, Agent.Codex]), "Rotation or explicit first speaker failed");
+            // The named agent answers alone in the third run: its reply asked Codex for nothing, so no reaction turn follows.
+            Check(f.Speakers.SequenceEqual([Agent.Codex, Agent.Claude, Agent.Claude, Agent.Codex, Agent.Claude]), "Rotation or explicit first speaker failed: " + string.Join(",", f.Speakers));
+            Check(f.Memory.Get(f.TaskId)!.Reason.Contains("did not ask Codex for anything"), "The addressed shortcut was not reported: " + f.Memory.Get(f.TaskId)!.Reason);
         });
         await test("a blocked contribution pauses for the user before inviting another agent", async () =>
         {

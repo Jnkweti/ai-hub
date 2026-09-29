@@ -61,6 +61,9 @@ public static class SavedStateRepair
     private static ConversationCursor Cursor(ConversationCursor? cursor) => new()
     {
         SessionId = cursor?.SessionId,
+        TaskId = cursor?.TaskId is { Length: > 0 and <= 128 } task ? task : null,
+        StreamSequence = cursor?.StreamSequence is { } sequence && sequence >= 0 ? sequence : null,
+        SessionInputBytes = Math.Max(0, cursor?.SessionInputBytes ?? 0),
         MessageIds = (cursor?.MessageIds ?? []).Where(SafeId).Distinct().TakeLast(ConversationTurns.ContextMessageLimit).ToArray(),
         MessageHashes = (cursor?.MessageHashes ?? []).Where(p => SafeId(p.Key) &&
             (cursor?.MessageIds ?? []).Contains(p.Key) && p.Value is { Length: 64 } && p.Value.All(Uri.IsHexDigit))

@@ -100,23 +100,30 @@ internal static class TaskContextTests
             Reject(() => new CollaborationStore(f.Local, new TaskMemory(f.Local)).Read(f.TaskId));
             Check(File.ReadAllText(path) == before, "Invalid originals were overwritten"); return Task.CompletedTask;
         });
-        await test("fresh phases reconstruct context and progress polls do not cancel or dispatch", async () =>
+        await test("later phases resume the native sessions with delta prompts, the carry limit starts fresh, and progress polls do not cancel or dispatch", async () =>
         {
             using var f = new Fixture(); var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var flags = new List<bool>();
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var flags = new List<bool>(); var prompts = new List<string>();
             await using var hub = f.Hub(async (_, host, turn, prompt, token) =>
             {
-                flags.Add(host.StartFreshSession);
+                lock (flags) { flags.Add(host.StartFreshSession); prompts.Add(prompt); }
                 Check(f.Store.Read(f.TaskId).ContextInputs.Last().Prompt == prompt, "Provider called before manifest saved");
                 if (turn == 1) { ready.SetResult(); await release.Task.WaitAsync(token); }
-                Check(prompt.Contains("Keep blue"), "Fresh provider missed original user constraint");
+                if (turn <= 2 || turn >= 5) Check(prompt.Contains("Keep blue"), "Fresh provider missed original user constraint");
                 Tool(host, "submit_message", Message()); return "Distinct answer " + turn;
             });
             await hub.SubmitAsync("Keep blue", "Both"); await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
             var generation = f.Memory.Get(f.TaskId)!.Generation;
             Check(hub.TryGetProgress("How is it going?", out var report) && report.Length > 0 && f.Calls == 1 && f.Memory.Get(f.TaskId)!.Generation == generation && f.Memory.Get(f.TaskId)!.State == WorkState.Running, "Progress changed active execution");
             release.SetResult(); await f.Finished(); await hub.SubmitAsync("Discuss next step", "Both"); await f.Finished();
-            Check(flags.Count == 4 && flags.All(v => v), "New phases inherited private native sessions");
+            // Phase two: both native sessions are resumed and each first turn is a delta carrying the new user message; the second also carries the peer's contribution.
+            Check(flags.SequenceEqual([true, true, false, false]), "The second phase did not resume both native sessions: " + string.Join(",", flags));
+            Check(prompts[2].Contains("NEW EVENTS SINCE YOUR LAST TURN") && prompts[2].Contains("earlier phase of this task") && prompts[2].Contains("Discuss next step") && !prompts[2].Contains("AI HUB COMMON TASK CONTEXT") &&
+                prompts[3].Contains("NEW EVENTS SINCE YOUR LAST TURN") && prompts[3].Contains("Distinct answer 3"), "Resumed sessions did not receive delta prompts with the new message and the peer's contribution");
+            Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "system" && e.Text.Contains("Resumed native sessions: Codex, Claude Code")), "The phase start did not record the resumed sessions");
+            // Phase three: the carry limit is exhausted, so both sessions start fresh with the full core.
+            hub.SessionCarryLimitBytes = 1; await hub.SubmitAsync("Third step", "Both"); await f.Finished();
+            Check(flags.Count == 6 && flags[4] && flags[5] && prompts[4].Contains("AI HUB COMMON TASK CONTEXT") && !prompts[4].Contains("NEW EVENTS SINCE YOUR LAST TURN"), "The carry limit did not start fresh sessions with the full core: " + string.Join(",", flags));
             Check(f.Store.Read(f.TaskId).ContextInputs.All(i => i.Outcome == "responded") && f.Store.Read(f.TaskId).Assignments.All(a => a.State == "completed"), "Completion lifecycle missing");
         });
         await test("inline human answers become authoritative context for the next structured participant", async () =>
