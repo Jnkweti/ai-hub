@@ -20,4 +20,12 @@ message was a greeting, which needs no snapshot at all.
   dispatch takes exactly one. The lock-release test now submits a review request, the case that still captures.
 - Package `artifacts\fingerprint-cache-025-release` (file version 0.25.0.0) passed `tests\Local-Diagnostics-Smoke.ps1`
   and `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
-- PENDING: clean checkout verification, installation, and a timing check of the first message after the restart.
+- Clean checkout of commit `c386be0` at a short temporary path built with zero warnings and passed all 244 tests
+  against its own packaged bridge.
+- Installed on September 29, 2026 after the idle 0.24.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\fingerprint-cache-025-install-result.json` (612 files verified, package hashes match, 17
+  profile files verified, production data unchanged, backups `before-collaboration-20260929-191324.zip` and
+  `before-collaboration-data-20260929-191324.zip`). Reopened as 0.25.0.0 with 5 rooms and 2 tasks intact:
+  `artifacts\fingerprint-cache-025-reopen-result.json`. The `fingerprints` folder appears after the first capture that
+  hashes anything; the first snapshot in each workspace after this install is still a full hash, and every later one,
+  across restarts, is incremental.
