@@ -39,4 +39,11 @@ cost). AI Hub now uses it by default.
   "Every participant passed". Evidence under `%TEMP%\ah-live-024-routing` and `%TEMP%\ah-live-024-stream`.
 - The live-stream check's assertion was corrected for the resident-session model: only each agent's first turn after
   the interjection must carry it, since later deltas contain only newer events.
-- PENDING: clean checkout verification, installation.
+- Clean checkout of commit `de4256a` at a short temporary path built with zero warnings and passed all 242 tests
+  against its own packaged bridge.
+- Installed on September 29, 2026 after the idle 0.23.0 app was closed (no owned or running tasks, no child
+  processes): `artifacts\default-model-024-install-result.json` (612 files verified, package hashes match, 15 profile
+  files verified, production data unchanged, backups `before-collaboration-20260929-185352.zip` and
+  `before-collaboration-data-20260929-185352.zip`). While the app was closed, the stale "Codex unavailable until
+  October 3" mark was removed from settings.json on the user's word that Codex was back. Reopened as 0.24.0.0 with
+  5 rooms and 1 task intact: `artifacts\default-model-024-reopen-result.json`.
