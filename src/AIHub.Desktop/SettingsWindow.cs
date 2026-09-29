@@ -68,7 +68,7 @@ public sealed class SettingsWindow : Window
         }
         var codex = Field("Codex executable (blank = automatically detect)", Settings.CodexPath);
         var claude = Field("Claude Code executable (blank = automatically detect)", Settings.ClaudePath);
-        var codexModel = Field("Codex model (blank = CLI default)", Settings.CodexModel);
+        var codexModel = Field("Codex model (blank = " + CodexClient.DefaultModel + ", AI Hub's default; the CLI's own default is used if this install rejects it)", Settings.CodexModel);
         var claudeModel = Field("Claude model (blank = CLI default)", Settings.ClaudeModel);
         advancedPanel.Children.Add(new TextBlock { Text = "Uses your existing CLI sign-ins. AI Hub does not store API keys.", TextWrapping = TextWrapping.Wrap, Foreground = Theme.Brush("MutedBrush"), FontSize = 12, Margin = new(0,12,0,12) });
         var check = new Button { Content = "Check installed tools", HorizontalAlignment = HorizontalAlignment.Left };

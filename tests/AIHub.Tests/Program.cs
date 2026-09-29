@@ -469,7 +469,7 @@ static class FakeWire
     public static async Task Run(bool claude)
     {
         var turn = 0;
-        var readOnly = false;
+        var readOnly = false; var startedModel = "(none)";
         var inputMode = "";
         while (await Console.In.ReadLineAsync() is { } line)
         {
@@ -514,11 +514,27 @@ static class FakeWire
             {
                 var method = m.Str("method"); var id = m["id"]?.DeepClone();
                 if (method == "initialize") Emit(new { id, result = new { userAgent = "fixture" } });
-                else if (method is "thread/start" or "thread/resume") { readOnly = m["params"].Str("sandbox") == "read-only"; Emit(new { id, result = new { thread = new { id = "fake-codex" } } }); }
+                else if (method is "thread/start" or "thread/resume")
+                {
+                    readOnly = m["params"].Str("sandbox") == "read-only";
+                    // Model fixture: remember the requested model, and reject AI Hub's default when the test asks for an install that lacks it.
+                    var requested = m["params"]?["model"] is null ? "(none)" : m["params"].Str("model");
+                    if (Environment.GetEnvironmentVariable("AIHUB_FAKE_REJECT_MODEL") == "1" && requested == CodexClient.DefaultModel)
+                    { Emit(new { id, error = new { code = -32602, message = "unknown model: " + requested } }); continue; }
+                    startedModel = requested;
+                    Emit(new { id, result = new { thread = new { id = "fake-codex" } } });
+                }
                 else if (method == "turn/start")
                 {
                     turn++; Emit(new { id, result = new { turn = new { id = "t" + turn } } });
-                    if (m["params"]?["input"]?[0].Str("text") == "multipart-reply-fixture")
+                    if (m["params"]?["input"]?[0].Str("text") == "model-fixture")
+                    {
+                        // "turn" mode rejects the default the way the service does for a ChatGPT-account login: after the thread started.
+                        if (Environment.GetEnvironmentVariable("AIHUB_FAKE_REJECT_MODEL") == "turn" && startedModel == CodexClient.DefaultModel)
+                            Emit(new { method = "turn/completed", @params = new { threadId = "fake-codex", turn = new { id = "t" + turn, status = "failed", error = new { message = "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account." } } } });
+                        else CodexResult(startedModel);
+                    }
+                    else if (m["params"]?["input"]?[0].Str("text") == "multipart-reply-fixture")
                     {
                         Emit(new { method = "item/agentMessage/delta", @params = new { threadId = "fake-codex", itemId = "first", delta = "First" } });
                         Emit(new { method = "item/completed", @params = new { threadId = "fake-codex", item = new { type = "agentMessage", id = "first", text = "First finding." } } });

@@ -67,7 +67,7 @@ requests already give a participant the next opportunity.
   prepared as a delta prompt carrying the constraint and then failed because the Codex account reached its usage
   limit (reset October 3, 2026). The host recorded the assignment and input as failed and paused the room with
   the provider's message, which is the intended failure behaviour. The check's final assertions were not reached;
-  it should be rerun once the quota resets.
+  it should be rerun once the quota resets. **Rerun on September 29, 2026** on 0.24.0 with real providers, once Codex was usable again: passed with 3 contributions, 1 pass and 2 provider starts; the mid-phase user message reached each agent's next turn and the phase ended with "Every participant passed". The check's assertion was corrected to require the aside only in each agent's first turn after it, since later deltas carry only newer events. Evidence under `%TEMP%\ah-live-024-stream`.
 - Clean checkout of commit `27f9bca` cloned to a short temp path: Release build with zero warnings and zero
   errors; **205 tests passed** in 66 seconds (`artifacts\live-stream-014-clean-build.txt`,
   `artifacts\live-stream-014-clean-tests.txt`).

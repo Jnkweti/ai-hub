@@ -57,8 +57,12 @@ Maintained by hand. Each item names where the idea came from, what it becomes in
 
 ## Verification debt
 
-- [ ] Rerun `AIHub.Tests.exe --live-stream-live <fresh dir>` (0.14.0) and a Claude+Codex live pass for 0.15.0 to
-  0.17.0 after the Codex limit resets on October 3, 2026 at 11:21 PM; record the results in the release docs.
+- [x] Rerun `AIHub.Tests.exe --live-stream-live <fresh dir>` (0.14.0) and a Claude+Codex live pass for 0.15.0 to
+  0.17.0 after the Codex limit resets on October 3, 2026 at 11:21 PM; record the results in the release docs. Done
+  September 29, 2026 once Codex was usable again: both live checks passed on 0.24.0 (see `DEFAULT-MODEL-0.24.0.md`
+  and `LIVE-STREAM-0.14.0.md`).
+- [ ] Optional live runs with the experimental settings on: mid-turn push (a message while Claude Code speaks) and
+  per-agent worktrees with the real CLIs in a git project.
 - [x] Make the test runner report a thrown fixture exception as `FAIL <name>` instead of crashing with an unhandled
   exception (exit code -532462766). Shipped as 0.23.0.
 

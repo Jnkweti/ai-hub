@@ -56,9 +56,15 @@ internal static class LiveStreamLiveCheck
         if (task.Generation != generation || task.State is not (WorkState.Ready or WorkState.Paused)) throw new IOException("The interjection restarted or broke the phase: " + task.Reason);
         var events = doc.Events.Where(e => e.Generation == generation).ToArray();
         var asideEvent = events.FirstOrDefault(e => e.Kind == "user_message" && e.Text == aside) ?? throw new IOException("The user's message did not enter the stream.");
+        // Resident sessions receive the aside once: in each agent's first turn after it (a full core or a delta). Later
+        // deltas carry only newer events, so only the first turn per agent must contain it.
         var afterAside = doc.ContextInputs.Where(i => i.Generation == generation && i.Outcome == "responded" && i.PreparedAt > asideEvent.Time).ToArray();
-        if (afterAside.Length == 0 || afterAside.Any(i => !i.Prompt.Contains(aside)))
-            throw new IOException("A turn after the interjection did not receive the user's message.");
+        if (afterAside.Length == 0) throw new IOException("No turn ran after the interjection.");
+        foreach (var participant in afterAside.Select(i => i.Agent).Distinct())
+        {
+            var firstAfter = afterAside.Where(i => i.Agent == participant).OrderBy(i => i.PreparedAt).First();
+            if (!firstAfter.Prompt.Contains(aside)) throw new IOException($"{participant}'s first turn after the interjection did not receive the user's message.");
+        }
         if (starts.Count != 2 || messages.Count < 2 || messages.Select(m => m.Agent).Distinct().Count() != 2) throw new IOException("Both agents did not contribute on resident sessions: " + string.Join(",", starts));
         var contributions = events.Count(e => e.Kind == "agent_message"); var passes = events.Count(e => e.Kind == "agent_pass");
         if (contributions < 2) throw new IOException("Reaction rounds produced fewer than two contributions.");

@@ -5,6 +5,14 @@ namespace AIHub.Core;
 
 public sealed class CodexClient(AgentOptions options, string? sessionId = null) : IAgentClient
 {
+    /// <summary>AI Hub's default Codex model when Settings leaves the model blank: GPT-6.1 Sol (released September 29, 2026).</summary>
+    public const string DefaultModel = "gpt-6.1-sol";
+    // Once this install or account rejects the default (for example a ChatGPT-account login without access yet), every
+    // later client in the process skips it, so each phase does not repeat the failed attempt.
+    private static volatile bool defaultRejected;
+    internal static void ResetDefaultModelFallback() => defaultRejected = false;
+    public static bool UsingDefaultModelFallback => defaultRejected;
+    private bool UsesDefault => string.IsNullOrWhiteSpace(options.Model) && !defaultRejected;
     public Agent Agent => Agent.Codex;
     public string? SessionId { get; private set; } = options.Collaboration?.StartFreshSession == true ? null : options.Collaboration?.ResumeSessionId ?? sessionId;
     public event Action<AgentEvent>? Event;
@@ -45,8 +53,17 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
             ["developerInstructions"] = options.PreparationOnly ? ConversationPreparation.Instructions : HubCoordinator.AgentInstructions + (options.Collaboration is { } host ? "\n\n" + host.Instructions : "")
         };
         if (!string.IsNullOrWhiteSpace(options.Model)) parameters["model"] = options.Model;
+        else if (!defaultRejected) parameters["model"] = DefaultModel;
         if (SessionId is not null) parameters["threadId"] = SessionId;
-        var result = await wire.RequestAsync(SessionId is null ? "thread/start" : "thread/resume", parameters, token);
+        var method = SessionId is null ? "thread/start" : "thread/resume";
+        JsonNode result;
+        try { result = await wire.RequestAsync(method, parameters, token); }
+        catch (InvalidOperationException ex) when (UsesDefault && IsUnknownModel(ex.Message))
+        {
+            // This Codex install or account does not accept AI Hub's default: use the CLI's own default and say so.
+            RejectDefault(); parameters.Remove("model");
+            result = await wire.RequestAsync(method, parameters, token);
+        }
         SessionId = result["thread"].Str("id");
         if (string.IsNullOrEmpty(SessionId)) throw new IOException("Codex did not return a thread ID.");
         if (options.Collaboration?.BindSession(SessionId) is { } replaced)
@@ -55,9 +72,32 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
         Emit(EventKind.Status, "Connected to Codex");
     }
 
+    private static bool IsUnknownModel(string error) => error.Contains("model", StringComparison.OrdinalIgnoreCase) &&
+        (error.Contains("unknown", StringComparison.OrdinalIgnoreCase) || error.Contains("not found", StringComparison.OrdinalIgnoreCase) || error.Contains("unsupported", StringComparison.OrdinalIgnoreCase) ||
+         error.Contains("not supported", StringComparison.OrdinalIgnoreCase) || error.Contains("invalid", StringComparison.OrdinalIgnoreCase) || error.Contains("not available", StringComparison.OrdinalIgnoreCase) ||
+         error.Contains("does not exist", StringComparison.OrdinalIgnoreCase) || error.Contains("no access", StringComparison.OrdinalIgnoreCase));
+    private void RejectDefault()
+    {
+        defaultRejected = true;
+        Emit(EventKind.Status, $"Codex did not accept {DefaultModel} on this install or account; using the CLI's default model for the rest of this session. Set a model in Settings to choose explicitly.");
+    }
     public async Task<AgentReply> SendAsync(string prompt, CancellationToken token)
     {
         activeToken = token;
+        var attemptedDefault = UsesDefault;
+        try { return await TurnAsync(prompt, token); }
+        catch (IOException ex) when (attemptedDefault && !defaultRejected && IsUnknownModel(ex.Message))
+        {
+            // The service rejected AI Hub's default model at turn time (for example a ChatGPT-account login without access yet).
+            // Reconnect the same thread without a model and ask once more.
+            RejectDefault();
+            if (wire is not null) await wire.DisposeAsync();
+            wire = null;
+            return await TurnAsync(prompt, token);
+        }
+    }
+    private async Task<AgentReply> TurnAsync(string prompt, CancellationToken token)
+    {
         await ConnectAsync(token);
         lock (turnGate) { text.Clear(); completed.Clear(); streamedCharacters = 0; }
         turn = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -377,11 +377,13 @@ public partial class MainWindow : Window
     {
         if (explicitPrompt is null && activeQuestion is { } question) { SubmitQuestion(question); return; }
         if (switching || sending || closing || current.IsArchived || string.IsNullOrWhiteSpace(explicitPrompt ?? Composer.Text)) return;
-        // A single recipient that is over its limit gets no process started; the message stays in the composer.
-        if (Target.SelectedIndex is 1 or 2 && settings.ProviderUnavailableUntil.TryGetValue(Target.SelectedIndex == 1 ? "Codex" : "Claude", out var unavailableUntil) && unavailableUntil > DateTimeOffset.Now)
+        // Sending to a single recipient that was marked over its limit is the user's word that it is back: the mark is cleared and
+        // the message goes through. A fresh limit reply re-marks it with the new reset time.
+        if (Target.SelectedIndex is 1 or 2 && settings.ProviderUnavailableUntil.Remove(Target.SelectedIndex == 1 ? "Codex" : "Claude", out var unavailableUntil) && unavailableUntil > DateTimeOffset.Now)
         {
-            StateLabel.Text = $"{(Target.SelectedIndex == 1 ? "Codex" : "Claude Code")} is unavailable until {unavailableUntil.ToLocalTime():g}. Send to {(Target.SelectedIndex == 1 ? "Claude" : "Codex")} or to Both.";
-            return;
+            var name = Target.SelectedIndex == 1 ? "Codex" : "Claude Code";
+            AddActivity("Hub", name + " marked available again", $"It was marked unavailable until {unavailableUntil.ToLocalTime():g}; sending to it directly cleared the mark.");
+            Save(); ReflectAvailability();
         }
         sending = true; UpdateConversationControls(); var prompt = (explicitPrompt ?? Composer.Text).Trim();
         if (explicitPrompt is null) Composer.Clear();

@@ -446,6 +446,35 @@ internal static class HardeningTests
                 Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "user_message" && e.Text == "also check the tests"), "The interjection was not recorded in the stream after the turn");
             }
         });
+        // 0.24.0: default Codex model.
+        await test("a blank Codex model means GPT-6.1 Sol, an explicit model wins, and a rejecting install falls back to the CLI default once", async () =>
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await using (var client = new CodexClient(new(AppContext.BaseDirectory, false, Executable: Environment.ProcessPath!)))
+                Check((await client.SendAsync("model-fixture", timeout.Token)).Text == CodexClient.DefaultModel, "Blank model did not become the default");
+            await using (var client = new CodexClient(new(AppContext.BaseDirectory, false, Model: "gpt-6-astra", Executable: Environment.ProcessPath!)))
+                Check((await client.SendAsync("model-fixture", timeout.Token)).Text == "gpt-6-astra", "An explicit model was replaced");
+            foreach (var mode in new[] { "1", "turn" }) // Rejected when the thread starts, or by the service once the turn runs (the ChatGPT-account case).
+            {
+                Environment.SetEnvironmentVariable("AIHUB_FAKE_REJECT_MODEL", mode); CodexClient.ResetDefaultModelFallback();
+                try
+                {
+                    var notices = new List<string>();
+                    await using var client = new CodexClient(new(AppContext.BaseDirectory, false, Executable: Environment.ProcessPath!));
+                    client.Event += e => { if (e.Kind == EventKind.Status) lock (notices) notices.Add(e.Text); };
+                    var reply = await client.SendAsync("model-fixture", timeout.Token);
+                    Check(reply.Text == "(none)" && notices.Any(n => n.Contains("did not accept " + CodexClient.DefaultModel)), $"Fallback to the CLI default did not happen in mode {mode}: reply={reply.Text}");
+                    Check(CodexClient.UsingDefaultModelFallback, "The rejection was not remembered for later clients");
+                    await using var later = new CodexClient(new(AppContext.BaseDirectory, false, Executable: Environment.ProcessPath!));
+                    var count = 0; later.Event += e => { if (e.Kind == EventKind.Status && e.Text.Contains("did not accept")) Interlocked.Increment(ref count); };
+                    Check((await later.SendAsync("model-fixture", timeout.Token)).Text == "(none)" && count == 0, "A later client repeated the failed attempt");
+                    await using var explicitClient = new CodexClient(new(AppContext.BaseDirectory, false, Model: CodexClient.DefaultModel, Executable: Environment.ProcessPath!));
+                    try { await explicitClient.SendAsync("model-fixture", timeout.Token); throw new Exception("An explicitly chosen model was silently substituted"); }
+                    catch (Exception ex) when (ex is InvalidOperationException or IOException) { } // The user's explicit choice is reported, never replaced.
+                }
+                finally { Environment.SetEnvironmentVariable("AIHUB_FAKE_REJECT_MODEL", null); CodexClient.ResetDefaultModelFallback(); }
+            }
+        });
         // 0.23.0: per-room transcript files.
         await test("rooms are stored as a small index plus one transcript per room, migrated from a legacy file and rewritten only when changed", () =>
         {
