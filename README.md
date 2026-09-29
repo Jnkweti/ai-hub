@@ -22,6 +22,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
+Version **0.25.0** keeps workspace fingerprints on disk between runs, so the first message after a launch is as fast as the rest, and stops taking a snapshot for status-only messages such as a greeting's reply. See [fingerprint cache 0.25.0](docs/FINGERPRINT-CACHE-0.25.0.md).
+
 Version **0.24.0** makes GPT-6.1 Sol the default Codex model when Settings leaves the model blank, with a one-time fallback to the CLI's own default if the install rejects it. See [default model 0.24.0](docs/DEFAULT-MODEL-0.24.0.md).
 
 Version **0.23.0** closes the review's last carried-over items: each conversation's transcript is its own file and only rewritten when it changed, a review stays fresh while the files it names are unchanged even if unrelated files moved on, and the test runner reports failures instead of crashing. See [remaining items 0.23.0](docs/REMAINING-0.23.0.md).

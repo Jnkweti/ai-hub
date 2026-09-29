@@ -446,6 +446,43 @@ internal static class HardeningTests
                 Check(f.Store.Read(f.TaskId).Events.Any(e => e.Kind == "user_message" && e.Text == "also check the tests"), "The interjection was not recorded in the stream after the turn");
             }
         });
+        // 0.25.0: fingerprint cache on disk; no snapshot for status-only messages.
+        await test("the workspace hash map survives a restart so the first capture after launch is incremental", async () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "ah-fpc-" + Guid.NewGuid().ToString("N")[..8]); Directory.CreateDirectory(Path.Combine(root, "ws"));
+            var previous = ProjectSnapshot.CacheDirectory; ProjectSnapshot.CacheDirectory = Path.Combine(root, "cache");
+            try
+            {
+                for (var i = 0; i < 6; i++) File.WriteAllText(Path.Combine(root, "ws", $"f{i}.txt"), "content " + i);
+                var before = Interlocked.Read(ref ProjectSnapshot.FilesHashed);
+                var cold = await ProjectSnapshot.CaptureAsync(Path.Combine(root, "ws"), default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 6 && Directory.GetFiles(Path.Combine(root, "cache"), "fingerprints-*.json").Length == 1, "Cold capture did not persist its map");
+                ProjectSnapshot.ForgetInMemory(); // A new process starts with nothing in memory.
+                var warm = await ProjectSnapshot.CaptureAsync(Path.Combine(root, "ws"), default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 6 && warm.Fingerprint == cold.Fingerprint, "The persisted map was not used after a restart");
+                await Task.Delay(20); File.AppendAllText(Path.Combine(root, "ws", "f3.txt"), " changed"); ProjectSnapshot.ForgetInMemory();
+                var changed = await ProjectSnapshot.CaptureAsync(Path.Combine(root, "ws"), default);
+                Check(Interlocked.Read(ref ProjectSnapshot.FilesHashed) - before == 7 && changed.Fingerprint != cold.Fingerprint, "A change after the restart was not detected with one rehash");
+                File.WriteAllText(Directory.GetFiles(Path.Combine(root, "cache"), "fingerprints-*.json")[0], "{not json"); ProjectSnapshot.ForgetInMemory();
+                Check((await ProjectSnapshot.CaptureAsync(Path.Combine(root, "ws"), default)).Fingerprint == changed.Fingerprint, "A corrupt cache file changed the result");
+            }
+            finally { ProjectSnapshot.CacheDirectory = previous; ProjectSnapshot.ForgetInMemory(); Directory.Delete(root, true); }
+        });
+        await test("a status-only message takes no workspace snapshot, while reviews and findings still do", () =>
+        {
+            using var f = new CollaborationRoutingTests.Fixture(); var captures = 0; f.Store.BeforeSnapshotCapture = () => Interlocked.Increment(ref captures);
+            var claim = f.Begin(); var codex = f.Dispatch(claim);
+            f.Submit(codex, Agent.Codex, CollaborationRoutingTests.Message(status: "progress"));
+            f.Submit(codex, Agent.Codex, CollaborationRoutingTests.Message(status: "assignment_complete"));
+            codex.Complete(); f.Memory.ReleaseSpeaker(claim, Agent.Codex);
+            var entries = f.Store.Read(f.TaskId).Entries;
+            Check(captures == 0 && entries.Count == 2 && entries.All(e => e.Message.Envelope.SnapshotRef is null) && f.Store.Read(f.TaskId).Snapshots.Count == 0, $"A status-only turn paid for a snapshot: captures={captures}");
+            var next = f.Dispatch(claim);
+            var request = f.Submit(next, Agent.Codex, CollaborationRoutingTests.Message("review_request"));
+            Check(captures == 1 && request.Str("message_id").Length == 32 && f.Store.Read(f.TaskId).Snapshots.Count == 1, $"A review request did not take its snapshot: captures={captures}");
+            next.Abort("done"); f.Memory.End(claim, WorkState.Ready, "done");
+            return Task.CompletedTask;
+        });
         // 0.24.0: default Codex model.
         await test("a blank Codex model means GPT-6.1 Sol, an explicit model wins, and a rejecting install falls back to the CLI default once", async () =>
         {

@@ -91,7 +91,7 @@ internal static class ReliabilityTests
             var pending = Task.Run(() => Reject(() =>
             {
                 if (operation == "observe") d.Observe(new(Agent.Codex, EventKind.Tool, "commandExecution", "cmd", "{\"type\":\"commandExecution\",\"status\":\"inProgress\",\"command\":\"test\"}"));
-                else d.Call(Agent.Codex, d.Id, "s", operation, operation == "get_evidence" ? new JsonObject { ["offset"] = 0, ["limit"] = 1 } : Message(), default);
+                else d.Call(Agent.Codex, d.Id, "s", operation, operation == "get_evidence" ? new JsonObject { ["offset"] = 0, ["limit"] = 1 } : Message("review_request"), default); // A review request still takes a snapshot; a plain status no longer does.
             }));
             try
             {

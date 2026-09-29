@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     {
         settings = store.Load("settings.json", () => new HubSettings { Workspace = FindProjectRoot() }, SavedStateRepair.Settings);
         statusStore = new(store.DirectoryPath);
+        ProjectSnapshot.CacheDirectory = Path.Combine(store.DirectoryPath, "fingerprints"); // Workspace hash maps survive restarts.
         rooms = new(store.LoadRooms());
         taskMemory = new(store);
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);

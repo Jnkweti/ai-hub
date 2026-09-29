@@ -146,6 +146,10 @@ The structured loop no longer selects speakers. It keeps an ordered queue of *op
 
 `HubCoordinator.InterjectAsync` accepts a user message while a phase runs. The desktop appends the message to the room and the loop, after the current turn, synchronizes context (which appends the `user_message` event and makes the message an active instruction), then offers every participant a fresh opportunity. Later prompts carry the message either in the common core (a participant's first turn) or as a stream event (a resident turn). The running provider turn is never cancelled; Stop all remains the explicit interrupt, and a message sent while the room is idle still starts a new phase with fresh sessions.
 
+## 0.25.0 fingerprint cache and snapshot skipping
+
+`ProjectSnapshot.CacheDirectory` (set by the desktop to `<data>\fingerprints`) enables `LoadPersisted` on the first capture of a workspace in a process and `Persist` after any capture that hashed a file or changed the file set; the file is `fingerprints-<sha256 of the upper-cased path, 32 hex>.json` with `{ workspace, entries: { path: [length, ticks, changeTicks, hash] } }`, written atomically and ignored when unreadable or for another workspace. In `CollaborationStore.Call`, the submission is parsed before the snapshot decision; `needsSnapshot` is true for review types, messages with findings, or `assignment_complete` while findings exist, and the envelope's `SnapshotRef` is null otherwise. `ValidateEvidenceAndReview` takes a nullable snapshot and requires one only on those same paths.
+
 ## 0.24.0 default Codex model
 
 `CodexClient.ConnectAsync` sends `model` on every `thread/start` and `thread/resume`: the Settings value, or `CodexClient.DefaultModel` (`gpt-6.1-sol`) when blank. A JSON-RPC error that names the model as unknown, unsupported, invalid or unavailable (`IsUnknownModel`) triggers one retry without `model` and a Status event; an explicit Settings model is never substituted.

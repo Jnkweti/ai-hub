@@ -151,7 +151,12 @@ public sealed partial class CollaborationStore
                 : EvidencePage(view.Document, args, CaptureSnapshot(view.Workspace, token));
             return Use(dispatch, (_, _) => response);
         }
-        CollaborationSnapshot? captured = tool == "submit_message" ? CaptureSnapshot(view.Workspace, token) : null;
+        // A snapshot certifies review freshness and finding evidence. A status-only message with no findings needs none,
+        // so a greeting or a plain progress report does not pay for a workspace fingerprint.
+        var parsed = tool == "submit_message" ? CollaborationContract.Parse(args?.ToJsonString() ?? "null") : null;
+        var needsSnapshot = parsed is not null && (parsed.Content.Type is "review_request" or "review_result" || parsed.Content.Findings is { Length: > 0 } ||
+            parsed.Content.Status == "assignment_complete" && view.Document.Findings.Count > 0);
+        CollaborationSnapshot? captured = needsSnapshot ? CaptureSnapshot(view.Workspace, token) : null;
         (string Fingerprint, bool Complete)? workSnapshot = null;
         if (tool == "claim_work")
         {
@@ -204,7 +209,7 @@ public sealed partial class CollaborationStore
                 return JsonSerializer.SerializeToNode(new { finding_id = findingId, disposition = "addressed", meaning = "Author fix claim; peer verification remains required." })!;
             }
             if (tool != "submit_message") throw new CollaborationValidationException("Unknown collaboration tool.");
-            var submission = CollaborationContract.Parse(args?.ToJsonString() ?? "null");
+            var submission = parsed!;
             var hash = Hash(submission);
             var duplicate = original.Entries.FirstOrDefault(e => e.Message.Envelope.DispatchId == id && e.IdempotencyKey == submission.IdempotencyKey);
             if (duplicate is not null)
@@ -226,12 +231,17 @@ public sealed partial class CollaborationStore
                 throw new CollaborationValidationException("Finding IDs must be unique.");
             foreach (var path in content.Scope.Files.Concat(content.Findings?.Select(f => f.File) ?? [])) CollaborationPaths.Validate(task.Workspace, path);
             var document = Copy(original);
-            var snapshot = captured!;
+            var snapshot = captured;
+            // The store may have gained findings since the pre-check; a completion then needs the snapshot it skipped.
+            if (snapshot is null && content.Status == "assignment_complete" && document.Findings.Count > 0) snapshot = CaptureSnapshot(Root(document), token);
             ValidateEvidenceAndReview(document, dispatch, content, snapshot);
-            if (content.Type is "review_request" or "review_result") snapshot = WithScope(snapshot, content.Scope); // Freshness by the named files, not the whole tree.
-            document.Snapshots[snapshot.Id] = snapshot;
+            if (snapshot is not null)
+            {
+                if (content.Type is "review_request" or "review_result") snapshot = WithScope(snapshot, content.Scope); // Freshness by the named files, not the whole tree.
+                document.Snapshots[snapshot.Id] = snapshot;
+            }
             var envelope = new CollaborationEnvelope(CollaborationContract.Version, Guid.NewGuid().ToString("N"), task.Id, task.RoomId,
-                agent, recipient, DateTimeOffset.UtcNow, dispatch.Claim.Generation, id, ++document.LastSequence, nativeSession, snapshot.Id);
+                agent, recipient, DateTimeOffset.UtcNow, dispatch.Claim.Generation, id, ++document.LastSequence, nativeSession, snapshot?.Id);
             var message = new CollaborationMessage(envelope, content, DeliveryState.Accepted);
             document.Entries.Add(new(message, submission.IdempotencyKey, hash));
             token.ThrowIfCancellationRequested(); dispatch.Token.ThrowIfCancellationRequested();

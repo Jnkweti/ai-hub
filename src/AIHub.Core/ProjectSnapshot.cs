@@ -23,6 +23,52 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Dictionary<string, KnownHash>> Known = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxKnownWorkspaces = 8;
     internal static long FilesHashed; // Files whose content was actually read; test observability.
+    /// <summary>
+    /// Where the per-workspace hash maps are kept between runs, so the first capture after a launch is incremental too.
+    /// Null disables persistence. The desktop points this at its data folder.
+    /// </summary>
+    public static string? CacheDirectory { get; set; }
+    internal static void ForgetInMemory() => Known.Clear(); // Test hook: the next capture must come from disk or rehash.
+    private static string CacheFile(string workspace) => Path.Combine(CacheDirectory!, "fingerprints-" +
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(workspace.ToUpperInvariant())))[..32] + ".json");
+    private static Dictionary<string, KnownHash> LoadPersisted(string workspace)
+    {
+        var map = new Dictionary<string, KnownHash>(StringComparer.Ordinal);
+        if (CacheDirectory is null) return map;
+        try
+        {
+            var path = CacheFile(workspace);
+            if (!File.Exists(path) || new FileInfo(path).Length > 64 * 1024 * 1024) return map;
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(path));
+            if (document.RootElement.GetProperty("workspace").GetString() is not { } saved || !string.Equals(saved, workspace, StringComparison.OrdinalIgnoreCase)) return map;
+            foreach (var entry in document.RootElement.GetProperty("entries").EnumerateObject())
+            {
+                var v = entry.Value;
+                if (v.GetArrayLength() == 4 && v[3].GetString() is { Length: 64 } hash) map[entry.Name] = new(v[0].GetInt64(), v[1].GetInt64(), v[2].GetInt64(), hash);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException) { map.Clear(); }
+        return map;
+    }
+    private static void Persist(string workspace, Dictionary<string, KnownHash> map)
+    {
+        if (CacheDirectory is null) return;
+        try
+        {
+            Directory.CreateDirectory(CacheDirectory);
+            var path = CacheFile(workspace); var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new System.Text.Json.Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject(); writer.WriteString("workspace", workspace); writer.WriteStartObject("entries");
+                foreach (var (key, value) in map)
+                { writer.WriteStartArray(key); writer.WriteNumberValue(value.Length); writer.WriteNumberValue(value.Ticks); writer.WriteNumberValue(value.ChangeTicks); writer.WriteStringValue(value.Hash); writer.WriteEndArray(); }
+                writer.WriteEndObject(); writer.WriteEndObject();
+            }
+            File.Move(temp, path, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
     [StructLayout(LayoutKind.Sequential)]
     private struct FileBasicInfo { public long CreationTime, LastAccessTime, LastWriteTime, ChangeTime; public uint FileAttributes; }
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -43,8 +89,9 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
     {
         workspace = ProjectStatusStore.NormalizeWorkspace(workspace);
         if (!Directory.Exists(workspace)) throw new DirectoryNotFoundException("The selected project folder no longer exists.");
-        var known = Known.GetValueOrDefault(workspace) ?? new Dictionary<string, KnownHash>(StringComparer.Ordinal);
+        var known = Known.GetValueOrDefault(workspace) ?? LoadPersisted(workspace);
         var refreshed = new Dictionary<string, KnownHash>(StringComparer.Ordinal);
+        var hashedNow = 0;
         var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
         var limitations = new HashSet<string>();
         var gitList = await GitAsync(workspace, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "."], token);
@@ -94,7 +141,7 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
                 string hash;
                 await using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
                     hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, token));
-                Interlocked.Increment(ref FilesHashed);
+                Interlocked.Increment(ref FilesHashed); hashedNow++;
                 files[clean] = hash; total += beforeLength; hashed++;
                 info.Refresh();
                 if (info.Length != beforeLength || info.LastWriteTimeUtc != beforeTime || changeTicks < 0 || ChangeTicks(full) != changeTicks)
@@ -107,6 +154,7 @@ public sealed record ProjectSnapshot(string Fingerprint, string Revision, string
         if (Known.Count >= MaxKnownWorkspaces && !Known.ContainsKey(workspace))
             foreach (var key in Known.Keys.Take(Known.Count - MaxKnownWorkspaces + 1)) Known.TryRemove(key, out _);
         Known[workspace] = refreshed;
+        if (hashedNow > 0 || refreshed.Count != known.Count) Persist(workspace, refreshed); // Only when something changed.
         var manifest = revision + "\n" + scope + "\n" + index + "\n" + string.Join('\n', files.Select(f => f.Key + "\0" + f.Value));
         return new(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifest))), revision, scope,
             limitations.Count == 0, string.Join(" ", limitations), files);
