@@ -46,4 +46,13 @@ re-reads plus a preparation (well under half of 70 s). Real timings are in the v
     carried sessions with delta prompts and the restart check.
 - Package `artifacts\session-carry-026-release` (file version 0.26.0.0) passed `tests\Local-Diagnostics-Smoke.ps1` and
   `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases), rerun after the plan-mode note.
-- Clean checkout, installation and reopen: recorded below once done.
+- Clean checkout of commit `c62e818` at a short temporary path built with zero warnings and passed all 248 tests
+  against its own packaged bridge.
+- Installed on September 29, 2026 after the idle 0.25.0 app was closed (no owned or running tasks, no provider
+  processes): `artifacts\session-carry-026-install-result.json` (612 files verified, package hashes match, 17 profile
+  files verified, production data unchanged, backups `before-collaboration-20260929-194854.zip` and
+  `before-collaboration-data-20260929-194854.zip`). The installer takes workspace-relative paths; an absolute
+  `-CandidateDirectory` fails its path check before touching anything. Reopened as 0.26.0.0 with 5 rooms and 2 tasks
+  intact: `artifacts\session-carry-026-reopen-result.json`. Existing rooms keep their session ids; their cursors gain
+  the carry fields on the first phase after this install, so the first phase in each room is still fresh and every
+  later one of the same task resumes.

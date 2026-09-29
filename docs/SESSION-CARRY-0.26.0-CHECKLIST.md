@@ -7,5 +7,5 @@
 - [x] Live checks with the real CLIs (routing continuation, shared conversation) pass with the new expectations.
 - [x] Read-only Claude Code sessions are told what plan mode means here, after two live failures.
 - [x] Package built and desktop smoke checks passed.
-- [ ] Clean checkout built and passed the full suite.
-- [ ] Installed with the user's approval and reopened as 0.26.0.0.
+- [x] Clean checkout built and passed the full suite.
+- [x] Installed with the user's approval ("finish the release once the live checks pass", September 29, 2026) and reopened as 0.26.0.0.
