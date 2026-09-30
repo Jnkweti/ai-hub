@@ -31,16 +31,25 @@ public sealed class ProjectStatusReport
         if (text.Length > 24000) throw new InvalidDataException("Status report exceeded the size limit; it was not saved.");
         text = text.Trim();
         if (text.EndsWith("Task complete.", StringComparison.Ordinal)) text = text[..^14].Trim();
-        if (text.StartsWith("```", StringComparison.Ordinal) && text.EndsWith("```", StringComparison.Ordinal))
-        {
-            var firstLine = text.IndexOf('\n');
-            if (firstLine < 0) throw new InvalidDataException("Status report had an invalid code fence.");
-            text = text[(firstLine + 1)..^3].Trim();
-        }
-        ProjectStatusReport report;
-        try { report = JsonSerializer.Deserialize<ProjectStatusReport>(text, Format) ?? throw new JsonException(); }
-        catch (JsonException) { throw new InvalidDataException("The agent returned an unsupported status report. No shared memory was updated; retry the status check."); }
-        report.Validate(snapshot); return report;
+        // Progress notes posted earlier in the turn arrive joined before the report, so the report is
+        // the whole reply or a trailing object (or fence) that starts a line. Text after it is not accepted.
+        foreach (var candidate in Trailing(text))
+            try { if (JsonSerializer.Deserialize<ProjectStatusReport>(Unfence(candidate), Format) is { } report) { report.Validate(snapshot); return report; } }
+            catch (JsonException) { }
+        throw new InvalidDataException("The agent returned an unsupported status report. No shared memory was updated; retry the status check.");
+    }
+    private static IEnumerable<string> Trailing(string text)
+    {
+        yield return text;
+        for (var i = text.IndexOf('\n'); i >= 0; i = text.IndexOf('\n', i + 1))
+            if (text.AsSpan(i + 1).StartsWith("{") || text.AsSpan(i + 1).StartsWith("```")) yield return text[(i + 1)..].Trim();
+    }
+    private static string Unfence(string text)
+    {
+        if (!text.StartsWith("```", StringComparison.Ordinal) || !text.EndsWith("```", StringComparison.Ordinal)) return text;
+        var firstLine = text.IndexOf('\n');
+        if (firstLine < 0 || firstLine > text.Length - 4) throw new InvalidDataException("Status report had an invalid code fence.");
+        return text[(firstLine + 1)..^3].Trim();
     }
     public void Validate(ProjectSnapshot snapshot)
     {

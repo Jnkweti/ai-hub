@@ -118,6 +118,21 @@ static class ProjectStatusTests
                 Check(f.Calls.Count == 1 && !File.Exists(f.ReportPath), "Invalid report was reviewed or cached");
             }
         });
+        await test("progress notes before the report are skipped but text after it is not", async () =>
+        {
+            foreach (var response in new[] { "Confirmed the cited path; now checking the handoff claims.\n\n" + Report, "Checked the evidence.\n```json\n" + Report + "\n```" })
+            {
+                using var f = new Fixture(); f.Respond = (_, _, _) => Task.FromResult(response);
+                await f.Run();
+                Check(f.Calls.Count == 2 && File.Exists(f.ReportPath), "Report after a progress note was rejected");
+            }
+            foreach (var response in new[] { Report + "\n\nOne more thought after the report.", "Notes only.\n{ not json" })
+            {
+                using var f = new Fixture(); f.Respond = (_, _, _) => Task.FromResult(response);
+                try { await f.Run(); throw new Exception("Report with trailing text accepted"); } catch (InvalidDataException) { }
+                Check(f.Calls.Count == 1 && !File.Exists(f.ReportPath), "Invalid report was reviewed or cached");
+            }
+        });
         await test("oversized file is fingerprinted by size and time and keeps freshness reuse", async () =>
         {
             using var f = new Fixture();
