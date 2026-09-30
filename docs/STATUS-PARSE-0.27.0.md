@@ -22,3 +22,14 @@ choose between the two instructions.
 - Full regression suite: **249 tests passed**: the 248 of 0.26.0 plus one case: a report after a progress note, and a
   fenced report after a note, are accepted and saved; a report followed by more text, and a note followed by broken
   JSON, are rejected without reaching the reviewer or the cache.
+- Clean checkout of commit `7e131c7` (a fresh clone at a short temporary path, since a Codex session had uncommitted
+  edits in the workspace) built with zero warnings and passed all 249 tests again via `Build.ps1 -Test`.
+- Package `artifacts\status-parse-027-release` (file version 0.27.0.0) passed `tests\Local-Diagnostics-Smoke.ps1` and
+  `tests\Conversation-Management-Smoke.ps1` (all four conversation-management cases).
+- Installed on September 29, 2026 after the idle 0.26.0 app was closed (no owned tasks, no provider processes; a
+  Notepad window it had opened on an activity log was left open): `artifacts\status-parse-027-install-result.json`
+  (612 files verified, package hashes match, 19 profile files verified, production data unchanged, backups
+  `before-collaboration-20260929-205648.zip` and `before-collaboration-data-20260929-205648.zip`). Reopened as
+  0.27.0.0 with 5 rooms and 2 tasks intact: `artifacts\status-parse-027-reopen-result.json`.
+- README is not updated in this release: it had uncommitted edits from a concurrent Codex session, and the version
+  line is added once that work is committed.
