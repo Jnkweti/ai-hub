@@ -39,6 +39,12 @@ public sealed class SettingsWindow : Window
         var rounds = new TextBox { Name = "MaxRoundsInput", Text = Math.Clamp(Settings.MaxAutoRounds,1,50).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         roundRow.Children.Add(rounds); roundRow.Children.Add(new TextBlock { Text = "automatic rounds before pausing", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(roundRow);
         Description("One round is one turn per agent. Choose 1–50; you can continue after reviewing their progress.");
+        panel.Children.Add(new TextBlock { Text = "Collaboration strategy", FontWeight = FontWeights.SemiBold, Margin = new(0,8,0,8) });
+        var strategy = new ComboBox { Name = "StrategyInput", HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 300 };
+        strategy.Items.Add("Reaction rounds (default)"); strategy.Items.Add("Independent answers, then synthesis (experimental)");
+        strategy.SelectedIndex = Settings.Strategy == "independent" ? 1 : 0;
+        panel.Children.Add(strategy);
+        Description("Reaction rounds: the first agent answers, the other adds or passes, and each contribution gives the other a chance to react. Independent answers: both answer the same message without seeing each other, then the first speaker synthesizes the two; the phase ends there. Messages that name one agent keep the usual routing.");
         var idleRow = new StackPanel { Orientation = Orientation.Horizontal };
         var idle = new TextBox { Name = "TurnInactivityInput", Text = Math.Clamp(Settings.TurnInactivitySeconds, 30, 3600).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         idleRow.Children.Add(idle); idleRow.Children.Add(new TextBlock { Text = "seconds without provider output before a turn is stopped", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(idleRow);
@@ -135,6 +141,7 @@ public sealed class SettingsWindow : Window
             Settings.CodexModel = codexModel.Text.Trim(); Settings.ClaudeModel = claudeModel.Text.Trim();
             Settings.AllowEdits = edits.IsChecked == true; Settings.ReduceMotion = reduced.IsChecked == true; Settings.MaxAutoRounds = count;
             Settings.StatusInspector = inspector.SelectedIndex == 1 ? Agent.Claude : Agent.Codex;
+            Settings.Strategy = strategy.SelectedIndex == 1 ? "independent" : "reaction";
             Settings.CollectLocalDiagnostics = diagnostics.IsChecked == true;
             DialogResult = true;
         };

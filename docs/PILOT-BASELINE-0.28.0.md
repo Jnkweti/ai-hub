@@ -348,6 +348,15 @@ Both arm's live exchange (Claude's design point was already in answer B, so noth
 the independent answers disagree, the synthesis step has to adjudicate without the ability to ask either author;
 the collaborative loop can. One run; directional.
 
+## Eighth run: the independent-answers strategy inside the harness (0.31.0)
+
+The second pilot task under the new selectable strategy (details in [STRATEGY-0.31.0.md](STRATEGY-0.31.0.md)): both
+agents answered from the same phase-start context without seeing each other, both found both defects, and Codex's
+synthesis adopted Claude's test-gap point after reading the test file. 7 min 20 s, Codex 1.02M tokens, Claude $0.77 —
+the same elapsed time as the reaction-rounds arm and an equivalent answer. Against the manual synthesis arm (one
+Claude session fed two earlier solo answers, 1 min 26 s, $0.93), the in-harness version costs the two fresh answers
+but keeps everything attributed in one ledger and lets the synthesizer verify claims with tools. One run each.
+
 ### Refinements suggested for Phase 2 (status as of October 3, 2026)
 
 1. Preparation cap — **shipped in 0.28.1**: preparation runs while the first speaker works, with a 45 s grace at the

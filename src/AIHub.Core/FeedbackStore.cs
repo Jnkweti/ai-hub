@@ -60,7 +60,7 @@ public sealed class FeedbackStore
     }
     public static string Fingerprint(string text) => TaskContextBuilder.Fingerprint(text);
     public static string StrategyFingerprint(HubSettings settings) => Fingerprint(JsonSerializer.Serialize(new
-    { settings.AutoExchange, settings.MaxAutoRounds, settings.AllowEdits, settings.CodexModel, settings.ClaudeModel, settings.MidTurnPush, settings.IsolateAgentWorktrees }));
+    { settings.AutoExchange, settings.MaxAutoRounds, settings.AllowEdits, settings.CodexModel, settings.ClaudeModel, settings.MidTurnPush, settings.IsolateAgentWorktrees, settings.Strategy }));
     public FeedbackRecord Add(FeedbackRecord record)
     {
         Validate(record);

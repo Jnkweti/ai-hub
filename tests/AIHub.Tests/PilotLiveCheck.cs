@@ -26,6 +26,7 @@ internal static class PilotLiveCheck
         await using var hub = new HubCoordinator(agent => agent == Agent.Codex ? new CodexClient(codexOptions) : new ClaudeClient(claudeOptions))
         {
             AutoExchange = true, AllowEdits = false, TaskMemory = memory, TaskId = taskId, CollaborationStore = store,
+            Strategy = HubCoordinator.ParseStrategy(Environment.GetEnvironmentVariable("AIHUB_PILOT_STRATEGY")), // "independent" selects the 0.31.0 strategy.
             CollaborationBridgePath = CollaborationTests.Bridge, CollaborationWorkflowDirectory = Path.Combine(CollaborationTests.Root, "plugins", "ai-hub-collaboration"),
             CollaborationFactory = (agent, connection) => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { Collaboration = connection }) : new ClaudeClient(claudeOptions with { Collaboration = connection }),

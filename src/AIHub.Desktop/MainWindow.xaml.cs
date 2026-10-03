@@ -140,6 +140,7 @@ public partial class MainWindow : Window
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
         {
             AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TurnInactivitySeconds = settings.TurnInactivitySeconds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
+            Strategy = HubCoordinator.ParseStrategy(settings.Strategy),
             ProviderUnavailableUntil = agent => settings.ProviderUnavailableUntil.TryGetValue(agent.ToString(), out var until) && until > DateTimeOffset.Now ? until : null,
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
@@ -621,7 +622,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; worker.Hub.Strategy = HubCoordinator.ParseStrategy(settings.Strategy); }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();

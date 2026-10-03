@@ -51,8 +51,8 @@ Acceptance: A real task can complete the full collaboration loop through AI Hub;
 - [x] (0.28.1 preparation grace and restatement-is-a-pass, 0.28.2 solo note, 0.28.3 execution routing, 0.28.4 claim matching; endorsement turns remain a known gap) Refine the interaction when it repeats work, manufactures disagreement, hides unresolved issues, or continues after useful progress ends.
 - [x] (solo Codex and solo Claude arms for every pilot task; one independent-answers-then-synthesis run on the second task) Expand the evaluation to independent solo runs and independent answers followed by synthesis. Compare under practical settings and, where feasible, similar resource limits.
 - [ ] Select contributions to fit the task. Either model may investigate, implement, challenge, or synthesize; avoid permanent model roles.
-- [ ] Keep independent assessment, optional behavioral profiles, and other experimental strategies as selectable policies. Describe profiles in observable terms; do not assume MBTI compatibility predicts performance.
-- [ ] Retain the option for one agent to pass when the peer adds nothing useful. Show unresolved disagreements and let the developer redirect or settle a decision.
+- [x] (0.31.0: Settings → Collaboration strategy; reaction rounds or independent answers then synthesis, recorded per phase; no behavioral profiles) Keep independent assessment, optional behavioral profiles, and other experimental strategies as selectable policies. Describe profiles in observable terms; do not assume MBTI compatibility predicts performance.
+- [x] (quiet passes, the completion gate and the resolution turn's visible retain/revise exist since 0.18.0 and 0.28.0) Retain the option for one agent to pass when the peer adds nothing useful. Show unresolved disagreements and let the developer redirect or settle a decision.
 
 Acceptance: Repeated trials show the harness can preserve useful differences and trace a contribution through challenge and revision. Report results and resource costs honestly; one successful demonstration does not establish better intelligence or prove emergence.
 

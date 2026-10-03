@@ -79,6 +79,8 @@ public class HubSettings
     public string ClaudeModel { get; set; } = "";
     public bool AllowEdits { get; set; }
     public bool AutoExchange { get; set; } = true;
+    /// <summary>Collaboration strategy for messages to both agents: "reaction" (default rounds) or "independent" (independent answers, then synthesis). 0.31.0.</summary>
+    public string Strategy { get; set; } = "reaction";
     public bool ReduceMotion { get; set; }
     public int MaxAutoRounds { get; set; } = CollaborationGuard.DefaultMaxRounds;
     public string LastRoomId { get; set; } = "";

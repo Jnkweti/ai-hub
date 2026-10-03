@@ -426,6 +426,7 @@ await LiveStreamTests.Run(Test);
 await ChallengeResolutionTests.Run(Test);
 await FeedbackTests.Run(Test);
 await PreferenceTests.Run(Test);
+await StrategyTests.Run(Test);
 await HardeningTests.Run(Test);
 await WorktreeTests.Run(Test);
 await SharedContextTests.Run(Test);
