@@ -118,6 +118,85 @@ challenge arose: the invitation to challenge produced none because there was not
 outcome and not a failure of the mechanism. One trial per arm, one task, no repeats and no order control: directional
 only. Emergence is not claimed.
 
+## Second pilot: a task where the quick answer is incomplete
+
+Run on 0.28.1 (preparation grace, restatement-is-a-pass). Same project, with `data/week.csv` extended so that 3 March
+has three transactions (withdrawal 100, deposit 100, withdrawal 100) whose intra-day balance after the first equals the
+day-end balance (-50.00). Prompt (`artifacts\pilot-028\prompt2.txt`): the customer reports the false -400.00 on 1 March
+with fees on positive days, and that the closing balance is off by more than the one 5.00 fee that 3 March should cost
+under the README policy. Ground truth, written before the runs:
+
+- Problem 1: the string sort, as in the first pilot. Fix: sort by `parse_date`.
+- Problem 2: `build_statement` detects "last transaction of the day" by `day_end[line.date] == line.balance`, so the
+  first 3 March line (balance -50.00, equal to the day end) is treated as a day end: the fee fires there, `adjusted`
+  continues from the charged value, and fires again at the real day end. With the sort fixed the tool still closes at
+  -60.00 (two 3 March fees) instead of -55.00. Minimal fix: identify the last line of a day by position (for example
+  the index of the day's last line, or a per-day group), not by balance equality.
+- Current output: six lines in string order, five fee lines, closing -75.00. Sort fix alone: -60.00. Correct: -55.00.
+- Rubric adds: problem 2 found; its fix not conflated with the sort; the -60.00 "sort fix alone" figure is a strong
+  evidence signal; whether the peer caught an incomplete answer; whether a `question` and resolution occurred.
+
+### Both (0.28.1)
+
+7 min 20 s, five ledger entries, phase ended with every participant passing. Codex spoke first and, 44 s in, submitted
+a `context_request`: it traced `ledger/` while Claude Code inspected the README, data and tests in parallel read-only
+sessions (2 min 47 s for the split). Its synthesis (5 min 41 s) named both defects — the string sort at
+`statement.py:29` and the balance-equality day-end test at `statement.py:42` — ran the CLI to confirm the -75.00
+closing and the duplicate 3 March fee lines, derived the correct -55.00, and noted that the existing tests miss both
+cases. Every rubric line for both problems passes. Claude Code's initial contribution (48 s) read the cited lines
+itself, confirmed both causes and the -55.00, supplied the "sort fix alone leaves -60.00" figure correctly, and added
+a design point Codex had not made: keep the fee replay and make the day-end test positional, because the shorter fix
+(charge once per date whose pre-fee balance is negative) silently changes policy when an earlier day's fee pushes a
+later day negative — a product decision, not a bug fix. Codex's reaction turn endorsed that point in its own words
+rather than passing (the new "restatement is a pass" sentence did not stop an endorsement); Claude then passed.
+Preparation was recorded as interrupted again, this time by design: a `context_request` ends the pending preparation
+because the synthesis turn rebuilds the common core. Usage: Codex 758k input (699k cached) / 10.5k output over three
+turns; Claude 195k input (174k cached) / 3.5k output, $0.63.
+
+Useful exchange: yes, without a question. Claude's positional-versus-policy point is the kind of complementary
+contribution the vision asks for, and Codex explicitly adopted it as the narrow fix. Still no `question`: both agents
+were right, so there was nothing to challenge, and the resolution path has yet to fire unprompted.
+
+### Codex alone (0.28.1)
+
+4 min 06 s, one turn, ten commands including the CLI reproduction (-400.00, fees on 1 March, twice on 3 March, 27 and
+28 February, closing -75.00). Both root causes at the right lines, the README policy cited, the correct -55.00, and
+the limits ("did not edit files or run the test suite … assumes CSV row order is transaction order within a day").
+Usage: 819k input (766k cached) / 11.1k output. Every rubric line passes for both problems.
+
+### Claude Code alone (0.28.1)
+
+1 min 56 s, one turn, ten `Read`s, $1.14 (269k input, 240k cached / 10.1k output). Both root causes, why each
+existing test misses its bug, a correct hand-traced table (current -75.00, sort fixed only -60.00, both fixed -55.00),
+the stable-sort point, the positional fix with code, and a regression-test suggestion. One wasted step: "I'll …
+send Codex a focused verification request", then "Codex is not a selected participant in this session", because the
+packaged workflow and dispatch instructions describe a teammate even in a single-agent phase. Every rubric line passes.
+
+### Comparison (second pilot)
+
+| Arm | Elapsed | Turns | Both defects | Extra value | Errors | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| Both | 7 min 20 s | 5 (incl. split research) | yes (Codex), verified (Claude) | positional-versus-policy tradeoff, adopted by Codex | one endorsement turn | Codex 758k in / 10k out; Claude $0.63 |
+| Codex alone | 4 min 06 s | 1 | yes | executed reproduction | none | Codex 819k in / 11k out |
+| Claude alone | 1 min 56 s | 1 | yes | correct three-state table, code for the fix | a wasted peer-request attempt | Claude $1.14 |
+
+### Conclusions after two tasks (six runs)
+
+- Correctness did not differ between arms on either task: every run found the planted cause(s) and a right fix. The
+  tasks were too easy to separate the arms on correctness; a harder pilot is needed before any claim about outcomes.
+- What collaboration added, both times, was a second agent's independent verification plus one substantive point the
+  first speaker had not made (a latent defect; a design tradeoff) — and, in the first pilot, a correct output trace
+  where the solo Claude run's was wrong. What it cost was 1.4–1.8× Codex-alone elapsed time, roughly double the
+  provider spend, and one low-value reaction turn per run (a restatement, then an endorsement).
+- The `question` path never fired across six runs. Both agents were right every time, so the honest reading is
+  "nothing to dispute", not "the mechanism failed"; it also means the invitation to challenge has not yet been tested
+  by a case where the first speaker is wrong. The next pilot should plant a wrong first answer: give the first speaker
+  misleading notes in the workspace (a previous engineer's wrong diagnosis), or pick a task with two defensible fixes
+  where the agents are likely to differ.
+- Harness defects found by the pilots: the fixed preparation cap (fixed in 0.28.1); the single-agent phase still tells
+  the agent about a teammate (Claude alone wasted a step on it); a reaction turn that merely endorses a peer's point is
+  not caught by the repeat check and the new prompt sentence stops restatement but not endorsement.
+
 ### Refinements suggested for Phase 2
 
 1. Preparation: cancel it when the first speaker's turn outlives the two-minute cap, or extend the cap to the turn
