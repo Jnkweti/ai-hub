@@ -24,6 +24,11 @@ public sealed class MessageView(SavedMessage saved) : Observable
         ? $"**{message.Content.Type.Replace('_', ' ')}** · {message.Envelope.Sender} → {message.Envelope.Recipient?.ToString() ?? "AI Hub"}\n\n{message.Content.Summary}"
         : Text;
     public string Text { get => Saved.Text; set { Saved.Text = value; Changed(); Changed(nameof(BodyText)); } }
+    // Developer feedback recorded on this message, shown as a small badge; set by the window from the feedback store.
+    private string feedbackLabel = "";
+    public string FeedbackLabel { get => feedbackLabel; set { if (feedbackLabel == value) return; feedbackLabel = value; Changed(); Changed(nameof(HasFeedback)); } }
+    public bool HasFeedback => feedbackLabel.Length > 0;
+    public bool CanRate => Saved.Speaker is "Codex" or "Claude" or "AI Hub" && Saved.Complete;
 }
 public sealed class ChoiceView(QuestionChoice choice, Action<ChoiceView> selected) : Observable
 {

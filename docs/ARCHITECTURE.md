@@ -76,6 +76,10 @@ Review results must match the incoming request's file/focus scope and snapshot. 
 
 The desktop renders expandable collaboration cards, exposes task evidence/freshness, exports records, and deletes ledgers through the task-aware deletion wrapper. Unsupported histories are preserved and isolated from dispatch without preventing other tasks from opening. Startup never resumes workers. See [release verification](COLLABORATION-RELEASE-VERIFICATION.md) and the earlier [routing verification](COLLABORATION-ROUTING-VERIFICATION.md) for recovery boundaries.
 
+## Explicit feedback (0.29.0)
+
+`FeedbackStore` keeps `feedback.json` beside the other profile files: one `FeedbackRecord` per judgement, linked by the saved message id, the host dispatch id (now persisted on `SavedMessage.DispatchId` for structured replies and cards), the ledger message id and the task id, with the task outcome, the app version and a fingerprint of the coordination settings in force. Kinds are useful, needs correction and preferred alternative; dimensions are optional; the scope (task, project, a named kind of task, general) is the developer's choice. The store validates, repairs on load with the usual backup, caps at 4,096 records, and deletes a conversation's records with the conversation. The desktop records feedback from a button on agent messages and from the Tasks window, shows a badge on judged messages, lists everything in All feedback (Tasks window) for editing, deletion and Markdown export, and appends feedback sections to conversation exports and review packets. Nothing in this store reaches an agent: feedback is explicit developer data for later review and the learning stages, never an instruction and never inferred from approvals, edits or silence.
+
 ## Adapters
 
 `JsonProcess` launches executables directly using argument arrays, with no shell interpolation. It handles UTF-8 newline-delimited JSON, correlates pending RPC responses, and keeps stdout/stderr draining while approval decisions are pending.

@@ -56,6 +56,9 @@ public partial class MainWindow
         var create = Button("NewTaskButton", "New task");
         var evidence = Button("TaskEvidenceButton", "Check evidence");
         var packet = Button("ReviewPacketButton", "Review packet");
+        var rate = Button("TaskFeedbackButton", "Feedback");
+        var allFeedback = Button("AllFeedbackButton", "All feedback"); // Every record you made, across conversations: review, edit, delete, export.
+        allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
         var merge = Button("MergeWorktreesButton", "Merge into project");
         var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
         merge.Click += async (_, _) =>
@@ -78,6 +81,7 @@ public partial class MainWindow
             catch (IOException ex) { notice.Text = "Could not remove worktrees: " + ex.Message; }
             finally { dropWorktrees.IsEnabled = true; }
         };
+        rate.Click += (_, _) => { if (list.SelectedItem is TaskRow row) { TaskFeedback(row.Task, window, text => notice.Text = text); Refresh(true); } };
         packet.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
@@ -85,6 +89,8 @@ public partial class MainWindow
             try
             {
                 var markdown = await Task.Run(() => collaborationStore.ReviewPacket(row.Task.Id, CancellationToken.None));
+                var judged = feedback.ForTask(row.Task.Id);
+                if (judged.Length > 0) markdown += "\n\n## Your feedback (explicit, local)\n\n" + string.Join("\n", judged.OrderBy(r => r.Updated).Select(r => "- " + FeedbackStore.Summary(r) + (r.MessageId is null ? "" : $" (message {r.MessageId})")));
                 var picker = new Microsoft.Win32.SaveFileDialog { Filter = "Markdown|*.md", FileName = "AI-Hub-review-packet-" + row.Task.Id[..8] + ".md" };
                 if (picker.ShowDialog(window) == true) { File.WriteAllText(picker.FileName, markdown); notice.Text = "Review packet saved: " + picker.FileName; }
             }
@@ -179,6 +185,7 @@ public partial class MainWindow
         {
             var task = (list.SelectedItem as TaskRow)?.Task;
             add.IsEnabled = task is not null && rooms.Any(r => r.Id == task.RoomId && !r.IsArchived);
+            rate.IsEnabled = task is not null;
             open.IsEnabled = task is not null;
             stop.IsEnabled = task is not null && workers.TryGetValue(task.RoomId, out var live) && live.Hub.TaskId == task.Id && task.State == WorkState.Running;
             resume.IsEnabled = task is not null && rooms.Any(r => r.Id == task.RoomId && !r.IsArchived);
@@ -191,6 +198,8 @@ public partial class MainWindow
                 $"Objective: {task.Objective}\nState: {task.State}\nOwner: {(task.Owner.Length == 0 ? "No active worker" : task.Owner)}\nUpdated: {task.Updated:g}\n{task.Reason}\n\nTask notes:\n" +
                 string.Join("\n\n", task.Notes.Select(n => $"{n.Time:g} · {n.Text}")) + "\n\nLatest agent reports:\n" +
                 string.Join("\n\n", task.LatestReplies.Select(p => p.Key + ": " + p.Value));
+            if (task is not null && feedback.ForTask(task.Id) is { Length: > 0 } judged)
+                details.Text += "\n\nYour feedback (local; agents are not shown it):\n" + string.Join("\n", judged.OrderBy(r => r.Updated).Select(r => "- " + FeedbackStore.Summary(r)));
             if (task is not null)
             {
                 if (layout is not null)

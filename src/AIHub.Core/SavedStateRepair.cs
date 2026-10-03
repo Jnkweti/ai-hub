@@ -48,6 +48,7 @@ public static class SavedStateRepair
             { message.Id = Guid.NewGuid().ToString("N"); messageIds.Add(message.Id); }
             message.Speaker ??= "Unknown"; message.Text ??= ""; message.Route ??= "Shared room";
             message.TaskId ??= "";
+            if (message.DispatchId is not null && !SafeId(message.DispatchId)) message.DispatchId = null;
             if (message.Input is not { } input) continue;
             input.Title ??= "Question";
             input.Options = (input.Options ?? []).Where(o => o is not null)

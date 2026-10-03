@@ -71,8 +71,7 @@
         <Button x:Name="ArchiveButton" Content="Archive conversation" Click="Archive_Click" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="10,9" FontSize="12" ToolTip="Keep this conversation in the archive"/>
         <Button x:Name="DeleteConversationButton" Grid.Column="1" Content="Delete" Click="DeleteConversation_Click" Style="{StaticResource QuietButton}" Foreground="{StaticResource DangerBrush}" Padding="8,9" FontSize="12" AutomationProperties.Name="Delete conversation" ToolTip="Permanently delete this conversation"/>
        </Grid>
-       <Button x:Name="ExportButton" Click="Export_Click" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="10,9"><StackPanel Orientation="Horizontal"><ui:HubIcon Kind="download" Width="16" Height="16" Margin="0,0,10,0"/><TextBlock Text="Export conversation"/></StackPanel></Button>
-       <Button x:Name="SettingsButton" Click="Settings_Click" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="10,10" Margin="0,6,0,0" ToolTip="Settings (Ctrl+,)" AutomationProperties.Name="Settings"><StackPanel Orientation="Horizontal"><ui:HubIcon Kind="settings-2" Width="16" Height="16" Margin="0,0,10,0"/><TextBlock Text="Settings"/></StackPanel></Button>
+       <Button x:Name="ExportButton" Click="Export_Click" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="10,9"><StackPanel Orientation="Horizontal"><ui:HubIcon Kind="download" Width="16" Height="16" Margin="0,0,10,0"/><TextBlock Text="Export conversation"/></StackPanel></Button>       <Button x:Name="SettingsButton" Click="Settings_Click" Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Padding="10,10" Margin="0,6,0,0" ToolTip="Settings (Ctrl+,)" AutomationProperties.Name="Settings"><StackPanel Orientation="Horizontal"><ui:HubIcon Kind="settings-2" Width="16" Height="16" Margin="0,0,10,0"/><TextBlock Text="Settings"/></StackPanel></Button>
       </StackPanel>
       <ListBox x:Name="RoomList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource MutedBrush}" SelectionChanged="RoomList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
        <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontSize="13" ToolTip="{Binding Title}"/></DataTemplate></ListBox.ItemTemplate>
@@ -154,12 +153,14 @@
          <Border x:Name="MessageSurface" Margin="0,0,0,22" Padding="12,14" CornerRadius="6" Background="Transparent">
           <StackPanel>
            <Grid Margin="0,0,0,12">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Border Width="30" Height="30" CornerRadius="15" Background="{Binding AvatarBackground}"><ui:HubIcon Kind="{Binding IconKind}" Foreground="{Binding Color}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="15" Height="15"/></Border>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0"><TextBlock Text="{Binding Speaker}" Foreground="{Binding Color}" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="{Binding Meta}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="12,1,0,0"/></StackPanel>
-            <Button Grid.Column="2" Click="Copy_Click" Style="{StaticResource QuietButton}" Padding="7" ToolTip="Copy message" AutomationProperties.Name="Copy message"><ui:HubIcon Kind="copy" Width="15" Height="15"/></Button>
+            <Button x:Name="FeedbackButton" Grid.Column="2" Click="Feedback_Click" Style="{StaticResource QuietButton}" Padding="7" Margin="0,0,4,0" Visibility="Collapsed" ToolTip="Record your feedback on this message (kept locally; agents are not shown it)" AutomationProperties.Name="Feedback on message"><ui:HubIcon Kind="messages-square" Width="15" Height="15"/></Button>
+            <Button Grid.Column="3" Click="Copy_Click" Style="{StaticResource QuietButton}" Padding="7" ToolTip="Copy message" AutomationProperties.Name="Copy message"><ui:HubIcon Kind="copy" Width="15" Height="15"/></Button>
            </Grid>
            <ui:MarkdownView Markdown="{Binding BodyText}"/>
+           <TextBlock x:Name="FeedbackBadge" Text="{Binding FeedbackLabel}" Visibility="Collapsed" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,8,0,0" AutomationProperties.Name="Feedback badge"/>
            <Expander x:Name="CollaborationDetails" Header="Review scope, findings and evidence" Visibility="Collapsed" Margin="0,10,0,0" Foreground="{StaticResource TextBrush}">
             <ui:MarkdownView Markdown="{Binding Text}" Margin="0,10,0,0"/>
            </Expander>
@@ -168,6 +169,8 @@
          </Border>
          <DataTemplate.Triggers>
           <DataTrigger Binding="{Binding IsStructured}" Value="True"><Setter TargetName="CollaborationDetails" Property="Visibility" Value="Visible"/></DataTrigger>
+          <DataTrigger Binding="{Binding CanRate}" Value="True"><Setter TargetName="FeedbackButton" Property="Visibility" Value="Visible"/></DataTrigger>
+          <DataTrigger Binding="{Binding HasFeedback}" Value="True"><Setter TargetName="FeedbackBadge" Property="Visibility" Value="Visible"/></DataTrigger>
           <DataTrigger Binding="{Binding Speaker}" Value="You"><Setter TargetName="MessageSurface" Property="Background" Value="{StaticResource SurfaceBrush}"/><Setter TargetName="MessageSurface" Property="Padding" Value="18,16"/></DataTrigger>
           <DataTrigger Binding="{Binding Speaker}" Value="AI Hub"><Setter TargetName="MessageSurface" Property="Background" Value="{StaticResource PanelBrush}"/><Setter TargetName="MessageSurface" Property="BorderBrush" Value="{StaticResource LineBrush}"/><Setter TargetName="MessageSurface" Property="BorderThickness" Value="2,0,0,0"/><Setter TargetName="MessageSurface" Property="Padding" Value="16"/></DataTrigger>
          </DataTemplate.Triggers>

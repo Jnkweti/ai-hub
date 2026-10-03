@@ -334,6 +334,20 @@ a focused question to the peer, an evidence-backed answer, and a recorded decisi
 alone (question → answer → resolution, each linked by ID). It is one run; it shows the mechanism works, not that it
 improves outcomes.
 
+## Seventh run: independent answers, then synthesis (second pilot task)
+
+The plan's remaining comparison arm: the two solo answers to the two-defect task (Codex alone and Claude alone, run
+earlier without seeing each other) were given to a single Claude Code session with the task and the instruction to
+produce the best answer, adjudicating differences by checking the code rather than averaging. 1 min 26 s, nine
+`Read`s, $0.93 (192k input, 166k cached / 7.2k output). The synthesis re-derived both defects from source, confirmed
+both answers' figures, judged answer B stronger (the -60.00 intermediate result, concrete code, the test gap) and
+noted that answer A's claimed CLI run was not visible to it but matched its trace. No disagreement existed to
+adjudicate. Compared with the Both arm on the same task (7 min 20 s, Codex 758k tokens plus Claude $0.63): the same
+conclusion, in a fifth of the time and at a comparable Claude cost but without Codex's tokens; what it lacked was the
+Both arm's live exchange (Claude's design point was already in answer B, so nothing was lost here). On a task where
+the independent answers disagree, the synthesis step has to adjudicate without the ability to ask either author;
+the collaborative loop can. One run; directional.
+
 ### Refinements suggested for Phase 2 (status as of October 3, 2026)
 
 1. Preparation cap — **shipped in 0.28.1**: preparation runs while the first speaker works, with a 45 s grace at the

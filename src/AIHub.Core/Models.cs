@@ -105,6 +105,8 @@ public class SavedMessage
     public bool Complete { get; set; } = true;
     public SavedInput? Input { get; set; }
     public CollaborationMessage? Collaboration { get; set; }
+    /// <summary>The host dispatch that produced an agent's reply in a structured phase (0.29.0), so feedback on the visible message can reach the ledger.</summary>
+    public string? DispatchId { get; set; }
 }
 
 public class Room

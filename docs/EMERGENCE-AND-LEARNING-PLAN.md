@@ -49,7 +49,7 @@ Acceptance: A real task can complete the full collaboration loop through AI Hub;
 - [x] (ChallengeResolutionTests, ConcurrentWorkTests grace and wrapper cases, routing cases) Add repeatable checks for message attribution, evidence links, context delivery, revision history, cancellation, provider errors, round limits, and preservation of current permissions.
 - [x] (--challenge-live, --pilot-live, --preparation-live) Run focused live verification with both providers. Identify differences between recorded messages and content actually supplied in provider inputs.
 - [x] (0.28.1 preparation grace and restatement-is-a-pass, 0.28.2 solo note, 0.28.3 execution routing, 0.28.4 claim matching; endorsement turns remain a known gap) Refine the interaction when it repeats work, manufactures disagreement, hides unresolved issues, or continues after useful progress ends.
-- [x] (solo Codex and solo Claude arms for every pilot task; independent-answers-then-synthesis not yet run) Expand the evaluation to independent solo runs and independent answers followed by synthesis. Compare under practical settings and, where feasible, similar resource limits.
+- [x] (solo Codex and solo Claude arms for every pilot task; one independent-answers-then-synthesis run on the second task) Expand the evaluation to independent solo runs and independent answers followed by synthesis. Compare under practical settings and, where feasible, similar resource limits.
 - [ ] Select contributions to fit the task. Either model may investigate, implement, challenge, or synthesize; avoid permanent model roles.
 - [ ] Keep independent assessment, optional behavioral profiles, and other experimental strategies as selectable policies. Describe profiles in observable terms; do not assume MBTI compatibility predicts performance.
 - [ ] Retain the option for one agent to pass when the peer adds nothing useful. Show unresolved disagreements and let the developer redirect or settle a decision.
@@ -58,12 +58,12 @@ Acceptance: Repeated trials show the harness can preserve useful differences and
 
 ## Phase 3 Capture feedback and outcomes
 
-- [ ] Add lightweight feedback on a contribution or task: useful, needs correction, preferred alternative, and an optional explanation. Support comparisons only when alternatives actually exist.
-- [ ] Link feedback to the relevant contribution, task, strategy version, and outcome. Version new storage schemas and verify migration without losing existing task history. Record explicit feedback separately from inferred signals such as accepted edits or later corrections.
-- [ ] Separate dimensions: correctness, relevance, explanation style, scope, initiative, collaboration value, and developer effort. A permission approval is not a quality rating.
-- [ ] Keep delayed outcomes and later corrections linked to the original work. No feedback means unknown, rather than success or failure.
-- [ ] Let the developer decide whether feedback applies only to this task, this project, a task category, or generally. Avoid interpreting every conversational remark as a global preference.
-- [ ] Store learning records locally with inspect, edit, delete, and export controls. Exclude masked/private answers and avoid copying sensitive transcript content into training records by default.
+- [x] (0.29.0: feedback button on agent messages, Feedback in the Tasks window) Add lightweight feedback on a contribution or task: useful, needs correction, preferred alternative, and an optional explanation. Support comparisons only when alternatives actually exist.
+- [x] (0.29.0: `FeedbackRecord` links message, dispatch, ledger message and task IDs, the strategy fingerprint and the outcome; `feedback.json` is versioned and repaired on load) Link feedback to the relevant contribution, task, strategy version, and outcome. Version new storage schemas and verify migration without losing existing task history. Record explicit feedback separately from inferred signals such as accepted edits or later corrections.
+- [x] (0.29.0: optional dimensions correctness, relevance, explanation, scope, initiative, collaboration, effort; approvals are not feedback) Separate dimensions: correctness, relevance, explanation style, scope, initiative, collaboration value, and developer effort. A permission approval is not a quality rating.
+- [x] (0.29.0: a record can be edited later and keeps its links; the outcome at recording time is kept; no feedback means unknown) Keep delayed outcomes and later corrections linked to the original work. No feedback means unknown, rather than success or failure.
+- [x] (0.29.0: scope chosen in the dialog, default this task) Let the developer decide whether feedback applies only to this task, this project, a task category, or generally. Avoid interpreting every conversational remark as a global preference.
+- [x] (0.29.0: All feedback window; the judged text is hashed, not copied) Store learning records locally with inspect, edit, delete, and export controls. Exclude masked/private answers and avoid copying sensitive transcript content into training records by default.
 
 Acceptance: Feedback survives restart and can be traced to its source. The developer can correct or remove it, and the system does not turn silence or permission decisions into rewards.
 

@@ -424,6 +424,7 @@ await CollaborationRoutingTests.Run(Test);
 await FollowUpAuditTests.Run(Test);
 await LiveStreamTests.Run(Test);
 await ChallengeResolutionTests.Run(Test);
+await FeedbackTests.Run(Test);
 await HardeningTests.Run(Test);
 await WorktreeTests.Run(Test);
 await SharedContextTests.Run(Test);

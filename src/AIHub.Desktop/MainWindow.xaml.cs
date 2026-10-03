@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, RoomWorker> workers = [];
     private readonly TaskMemory taskMemory;
     private readonly CollaborationStore collaborationStore;
+    private readonly FeedbackStore feedback; // Explicit developer feedback on messages and tasks; local only, never supplied to agents.
     private readonly RuntimeAudit audit;
     private sealed class RoomWorker(Room room, HubCoordinator hub)
     {
@@ -57,6 +58,7 @@ public partial class MainWindow : Window
         rooms = new(store.LoadRooms());
         taskMemory = new(store);
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);
+        feedback = new(store);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
         if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
         // Crash-class failures are recorded and flushed immediately; the failure itself is not suppressed.
@@ -173,7 +175,7 @@ public partial class MainWindow : Window
             if (!IsOwned()) return;
             if (message.Content.Type == "status") return; // Routine control receipts remain in task history, outside the conversation.
             var saved = new SavedMessage { Speaker = "AI Hub", Route = "Structured collaboration", TaskId = coordinator.TaskId,
-                Text = CollaborationPresentation.Message(message), Collaboration = message };
+                Text = CollaborationPresentation.Message(message), Collaboration = message, DispatchId = message.Envelope.DispatchId };
             room.Messages.Add(saved);
             if (IsCurrentHub()) { messages.Add(new(saved)); ShowConversation(); }
             Save();
@@ -263,7 +265,7 @@ public partial class MainWindow : Window
             var key = item.Agent + "|" + item.ItemId;
             if (!worker.Streaming.TryGetValue(key, out var view))
             {
-                var saved = new SavedMessage { Speaker = item.Agent.ToString(), Route = "Shared room", TaskId = worker.Hub.TaskId, Complete = false };
+                var saved = new SavedMessage { Speaker = item.Agent.ToString(), Route = "Shared room", TaskId = worker.Hub.TaskId, Complete = false, DispatchId = item.ItemId.Length > 0 ? item.ItemId : null };
                 worker.Room.Messages.Add(saved); view = new(saved); worker.Streaming[key] = view;
             }
             view.Text = item.Kind == EventKind.TextDelta ? view.Text + item.Text : item.Text;
@@ -288,7 +290,7 @@ public partial class MainWindow : Window
             var key = item.Agent + "|" + item.ItemId;
             if (!streaming.TryGetValue(key, out var view))
             {
-                var saved = new SavedMessage { Speaker = item.Agent.ToString(), Route = "Shared room", TaskId = hub?.TaskId ?? "", Complete = false };
+                var saved = new SavedMessage { Speaker = item.Agent.ToString(), Route = "Shared room", TaskId = hub?.TaskId ?? "", Complete = false, DispatchId = item.ItemId.Length > 0 ? item.ItemId : null };
                 current.Messages.Add(saved); view = new(saved); streaming[key] = view; messages.Add(view);
             }
             view.Text = item.Kind == EventKind.TextDelta ? view.Text + item.Text : item.Text;
@@ -547,6 +549,7 @@ public partial class MainWindow : Window
         foreach (var saved in current.Messages)
             messages.Add(pendingInputs.Values.FirstOrDefault(p => ReferenceEquals(p.Room, current) && ReferenceEquals(p.Message.Saved, saved))?.Message
                 ?? streaming.Values.FirstOrDefault(v => ReferenceEquals(v.Saved, saved)) ?? new(saved));
+        ApplyFeedbackLabels();
         RefreshActivity();
         Welcome.Visibility = messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ChatScroll.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -659,7 +662,7 @@ public partial class MainWindow : Window
         {
             var history = string.Join("\n\n", taskMemory.ForWorkspace(current.Workspace).Where(t => t.RoomId == current.Id)
                 .Select(t => CollaborationPresentation.History(collaborationStore.Read(t.Id)) + "\n" + collaborationStore.ContextStateReport(t.Id)));
-            File.WriteAllText(picker.FileName, "# " + current.Title + "\n\n" + string.Join("\n\n---\n\n", current.Messages.Select(m => $"## {m.Speaker} · {m.Time:g}\n\n{m.Text}")) + history);
+            File.WriteAllText(picker.FileName, "# " + current.Title + "\n\n" + string.Join("\n\n---\n\n", current.Messages.Select(m => $"## {m.Speaker} · {m.Time:g}\n\n{m.Text}")) + FeedbackExportSection(current) + history);
             StateLabel.Text = "Conversation exported";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -832,6 +835,8 @@ public partial class MainWindow : Window
             await statusStore.ForgetAsync(room.Workspace, room.Id, timeout.Token);
             collaborationStore.DeleteRoom(room.Id, () => store.DeleteRoom(rooms.ToList(), room.Id));
             rooms.Remove(room);
+            try { feedback.DeleteRoom(room.Id); } // The conversation is gone; its feedback goes with it. A failure here leaves orphaned records, not a kept room.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AddActivity("Hub", "Feedback cleanup", "Feedback for the deleted conversation could not be removed: " + ex.Message); }
             SelectActiveRoom(); Save();
             StateLabel.Text = "Conversation deleted · project files and provider history were kept";
         }

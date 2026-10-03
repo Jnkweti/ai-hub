@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>AI Hub</AssemblyName>
-    <Version>0.28.5</Version>
+    <Version>0.29.0</Version>
     <ApplicationIcon>Assets\aihub.ico</ApplicationIcon>
   </PropertyGroup>
 
