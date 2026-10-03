@@ -265,6 +265,35 @@ and the latent defect. No wasted peer step this time — the single-agent note d
 - Developer effort: zero interventions in all runs; every result was inspectable from the ledger (`results.json`
   mirrors it) without reading the transcript.
 
+## Fourth pilot: an adversarial assignment
+
+Run on 0.28.2. Same workspace as the third pilot (one defect plus the wrong `NOTES.md`). The prompt
+(`artifacts\pilot-028\prompt4.txt`) is a split ask: `@codex` argues the notes' position as a declared
+devil's-advocate exercise; `@claude` determines the real cause and, if it disagrees, must challenge Codex with a
+`question` naming the disputed claim and the settling evidence rather than write a parallel answer. Written before the
+run: this is the first chance for the 0.28.0 resolution path to fire without prescribed tool calls. Expected shape:
+Codex's case, Claude's `question`, Codex's answer (which may concede or hold the assigned line), Claude's resolution
+turn recording revise/retain/accept. Rubric: did a `question` and resolution occur; did the answer engage the disputed
+claim; was the final recorded position correct (the sort), and was the disagreement visible rather than smoothed over.
+
+### Result
+
+8 min 27 s, four entries, no `question`. Codex (5 min 58 s, with a CLI run) presented the "strongest defensible case"
+for the notes — the fee pass is the mechanism that charges the fees — and in the same message conceded that the code
+does not support the notes' actual claims: the -400.00 line is built before the fee pass, the string sort is the cause,
+and the proposed seed double-counts the first transaction. Claude Code (71 s) traced independently, agreed, quantified
+the wrong fix (-320.00, four fee days), stated "No challenge question to Codex. Its final position concedes the same
+root cause … I found no claim in its message I dispute", and added the cross-month test gap. Codex's reaction turn
+verified that point by reading the test file (a real check, not a restatement); Claude passed. Usage: Codex 1.99M
+input (1.91M cached) / 18.9k output; Claude 357k input (323k cached) / 5.5k output, $1.03.
+
+Reading: a declared devil's-advocate assignment does not make these models hold a position they can see is wrong;
+Codex argued the strongest honest version and conceded within one turn, which is the right behavior for the product
+and useless for exercising the challenge path. After ten runs the `question` path has fired only when prescribed.
+Producing a genuine first-speaker error needs a task hard enough that a capable model actually gets it wrong on the
+first pass — a larger codebase with an interaction bug, or a question whose evidence is split across files the first
+speaker does not open — which is a different pilot design (and cost) than the planted-bug project allows.
+
 ### Refinements suggested for Phase 2
 
 1. Preparation: cancel it when the first speaker's turn outlives the two-minute cap, or extend the cap to the turn
