@@ -5,6 +5,61 @@ static class ActivityFeedTests
 {
     public static async Task Run(Func<string, Func<Task>, Task> test)
     {
+        await test("activity snapshot preserves diagnostics while edits and deletion leave recording intact", () =>
+        {
+            var root = Path.Combine(AppContext.BaseDirectory, "activity-snapshot-" + Guid.NewGuid().ToString("N"));
+            var snapshots = new List<string>();
+            try
+            {
+                var store = new LocalStore(root);
+                store.AppendActivity("room", Command("read", "inProgress"));
+                store.AppendActivity("room", new(Agent.Codex, EventKind.ToolOutput, "Full output\n", "read"));
+                store.AppendActivity("room", new(Agent.Claude, EventKind.Status, "Connected"));
+                store.AppendActivity("room", new(Agent.Claude, EventKind.Usage, "Usage", Detail: "{\"input_tokens\":200}"));
+                store.AppendActivity("room", new(Agent.Claude, EventKind.Error, "Provider error"));
+                store.AppendHandoff("room", "Codex", "Claude", "Review findings");
+                var originalPath = store.ActivityPath("room");
+                var original = File.ReadAllBytes(originalPath);
+                var first = store.CreateActivitySnapshot("room") ?? throw new Exception("Snapshot missing");
+                snapshots.Add(first);
+                Check(Path.GetDirectoryName(first) != Path.GetDirectoryName(originalPath), "Snapshot stored with original logs");
+                Check(File.ReadAllBytes(first).SequenceEqual(original), "Snapshot omitted activity or diagnostics");
+                store.AppendActivity("room", new(Agent.Claude, EventKind.Status, "Next event"));
+                Check(File.ReadAllBytes(first).SequenceEqual(original), "Snapshot changed with live recording");
+                var updated = File.ReadAllBytes(originalPath);
+                File.WriteAllText(first, "Accidental overwrite");
+                Check(File.ReadAllBytes(originalPath).SequenceEqual(updated), "Editing copy changed original");
+                File.Delete(first);
+                Check(File.ReadAllBytes(originalPath).SequenceEqual(updated), "Deleting copy changed original");
+                store.AppendActivity("room", new(Agent.Codex, EventKind.Status, "Recording continues"));
+                var second = store.CreateActivitySnapshot("room") ?? throw new Exception("Fresh snapshot missing");
+                snapshots.Add(second);
+                Check(second != first && File.ReadAllBytes(second).SequenceEqual(File.ReadAllBytes(originalPath)), "Reopening did not capture latest events independently");
+            }
+            finally
+            {
+                foreach (var snapshot in snapshots) File.Delete(snapshot);
+                if (Directory.Exists(root))
+                {
+                    foreach (var file in Directory.GetFiles(root)) File.Delete(file);
+                    Directory.Delete(root);
+                }
+            }
+            return Task.CompletedTask;
+        });
+        await test("activity snapshot handles missing logs and rejects invalid room identifiers", () =>
+        {
+            var root = Path.Combine(AppContext.BaseDirectory, "activity-snapshot-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store = new LocalStore(root);
+                Check(store.CreateActivitySnapshot("missing") is null && !File.Exists(store.ActivityPath("missing")), "Opening a missing log created activity");
+                try { store.CreateActivitySnapshot("../outside"); throw new Exception("Unsafe room identifier accepted"); }
+                catch (IOException) { }
+            }
+            finally { if (Directory.Exists(root)) Directory.Delete(root); }
+            return Task.CompletedTask;
+        });
         await test("activity coalesces streamed output and completion into one readable action", () =>
         {
             var feed = new ActivityFeed(); feed.BeginTurn(Agent.Codex);

@@ -111,6 +111,20 @@ public sealed class LocalStore
             File.AppendAllText(ActivityPath(room),
                 JsonSerializer.Serialize(new { time = DateTimeOffset.Now, value.Agent, value.Kind, value.Text, value.ItemId, value.Detail }) + "\n");
     }
+    /// <summary>Copies the complete activity log to a disposable snapshot, leaving the recording file untouched.</summary>
+    public string? CreateActivitySnapshot(string roomId)
+    {
+        lock (sync)
+        {
+            var sourcePath = ActivityPath(roomId);
+            if (!File.Exists(sourcePath)) return null;
+            var snapshotPath = Path.Combine(Path.GetTempPath(), "AIHub-activity-" + roomId + "-" + Guid.NewGuid().ToString("N") + ".jsonl");
+            using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using (var snapshot = new FileStream(snapshotPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                source.CopyTo(snapshot);
+            return snapshotPath;
+        }
+    }
     internal void Delete(string name) { lock (sync) File.Delete(DataPath(name)); }
     public void AppendHandoff(string room, string from, string to, string text)
     {

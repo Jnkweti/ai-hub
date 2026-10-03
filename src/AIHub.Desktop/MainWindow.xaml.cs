@@ -367,10 +367,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            var path = store.ActivityPath(current.Id);
-            if (!File.Exists(path)) { StateLabel.Text = "No activity has been recorded in this conversation yet"; return; }
+            var path = store.CreateActivitySnapshot(current.Id);
+            if (path is null) { StateLabel.Text = "No activity has been recorded in this conversation yet"; return; }
             var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe")) { UseShellExecute = false };
             start.ArgumentList.Add(path); Process.Start(start);
+            StateLabel.Text = "Opened an activity log copy; open again for the latest events";
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException) { StateLabel.Text = "Could not open activity log: " + ex.Message; }
     }

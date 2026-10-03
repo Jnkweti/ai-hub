@@ -2,6 +2,12 @@
 
 A Windows desktop room for you, Codex, and Claude Code. Send one message to both agents, read their contributions in a shared conversation, and inspect live tools and handoffs in the activity panel. Structured replies appear once after their terminal result is committed; quiet checks stay in activity.
 
+The authoritative intended outcome is [emergent collaborative intelligence among the developer, Claude, and Codex](PROJECT-VISION.md): preserve independent judgment and enable interactions that improve the collective result. Use that document to guide architecture, features, and agent workflows.
+
+The proposed development sequence is in the [collaboration and preference learning plan](docs/EMERGENCE-AND-LEARNING-PLAN.md), with milestones tracked in the [TODO list](docs/TODO.md).
+
+For the implementation assignment and current checkout notes, see the [Claude handoff](CLAUDE-HANDOFF.md).
+
 ## Open it
 
 Double-click **AI Hub** on your desktop, or run **Launch AI Hub.cmd** in this folder. The compiled application is `app\AI Hub.exe`.
@@ -155,6 +161,8 @@ Saved under `%LOCALAPPDATA%\AIHub`:
 - `project-status/<workspace-hash>/report.json`: latest validated status report, source conversation, configuration, fingerprints and provider usage. An adjacent `inspection.lock` enforces one status owner across processes sharing this data directory.
 
 These files contain conversation and tool content in plain text. Native CLI session history remains in each provider's usual storage. `AIHUB_DATA_DIR` can override AI Hub's data directory for isolated testing.
+
+**Activity → Open full log** opens a disposable copy of the conversation's complete activity log in Notepad, including diagnostic events. Editing or deleting that copy leaves the original log intact. Each click creates a fresh snapshot; open it again to include events recorded since the previous copy.
 
 Only one app instance can write a given data folder. Opening AI Hub again activates its existing window. Invalid saved records are repaired when possible, with the untouched original retained as an `.unreadable-<unique-id>` backup. Saves use exclusive temporary files and atomic replacement. Very long messages have a labeled 100,000-character preview; Copy and export retain the full stored text. Activity logs and conversations are not automatically deleted or rotated.
 

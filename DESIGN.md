@@ -1,5 +1,7 @@
 # Mission control
 
+Project purpose and intended outcome are defined in [PROJECT-VISION.md](PROJECT-VISION.md). This document describes the interface design in support of that vision.
+
 AI Hub is a shared workspace for a person, Codex, and Claude Code. Its interface borrows the precise instrumentation of GMUNK's Oblivion interfaces and the quiet organization of Linear, with motion that explains real collaboration. The conversation remains the primary working surface.
 
 ## Design system

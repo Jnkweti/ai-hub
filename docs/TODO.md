@@ -3,6 +3,20 @@
 Maintained by hand. Each item names where the idea came from, what it becomes in AI Hub, and a rough size
 (S = a day or less, M = a few days, L = its own release). Check items off in the commit that ships them.
 
+## Collaboration and preference learning roadmap
+
+From the developer's September 29, 2026 discussion of emergent collaboration and learning from preferences; sequence revised October 3 to build the harness first. The [detailed plan](EMERGENCE-AND-LEARNING-PLAN.md) defines tasks, dependencies, and acceptance criteria. These milestones are proposed and unestimated; size individual implementation slices after mapping the current architecture.
+
+- [ ] **Phase 0: Pilot baseline.** Capture a small starting point while designing the harness; expand evaluation after its first working loop.
+- [ ] **Phase 1: Working collaboration harness.** Build the minimal host-owned coordination core and full contribution, challenge, revision, and developer-control path on existing provider clients.
+- [ ] **Phase 2: Harness evaluation.** Exercise the loop, verify safeguards and live providers, refine reciprocal behavior, and compare results and cost.
+- [ ] **Phase 3: Feedback and outcomes.** Capture attributed, scoped feedback and delayed outcomes with developer controls.
+- [ ] **Phase 4: Preference memory.** Apply relevant, inspectable preferences while preserving explicit instructions and independent judgment.
+- [ ] **Phase 5: Learned strategy selection.** Evaluate a bounded learner against fixed policies and preference memory alone; promote only with evidence.
+- [ ] **Phase 6: Deeper training decision.** Assess sequential reinforcement learning, model parameter training, and execution ownership as separate optional branches.
+
+First implementation slice: build the minimal working harness and its contribution, challenge, revision, and developer-control loop. Capture a lightweight baseline alongside implementation; add feedback and preference learning after the harness works.
+
 ## Batch 1 — responsiveness and safety (shipped as 0.18.0, see `PEER-FEATURES-0.18.0.md`)
 
 - [x] **Per-turn inactivity watchdog** (from AgentBridge). A turn with no provider events for N seconds (default 300)
