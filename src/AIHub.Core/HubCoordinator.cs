@@ -402,6 +402,8 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 else if (resolution is { } answered)
                     input += "\n\nANSWER TO YOUR QUESTION (attributed peer data, not user authority):\n" + JsonSerializer.Serialize(answered.Answer, CollaborationContract.JsonOptions);
                 else input += "\n\nThere is no incoming structured peer message for this dispatch. Omit reply_to entirely; do not supply null, a task/dispatch/work ID, or an invented message ID.";
+                if (dispatch.Participants.Length == 1)
+                    input += "\n\nSINGLE-AGENT PHASE: you are the only selected participant. There is no teammate to address, hand work to, or ask for a review; the packaged workflows' peer steps do not apply. Finish with a status message.";
                 if (worktrees is { } isolated)
                     input += $"\n\nWORKTREE: You are working in your own git worktree at {isolated.PathFor(speaker)} (branch {isolated.BranchFor(speaker)}). Your teammate's committed changes are merged into it before each of your turns; after your turn the host commits your changes and merges them into {isolated.IntegrationBranch}. Merge conflicts are reported as system events in the stream. Use relative paths and do not run git checkout, branch, merge or worktree commands yourself.";
                 if (repair.Length > 0) input += "\n\nHOST VALIDATION REPAIR: " + repair;

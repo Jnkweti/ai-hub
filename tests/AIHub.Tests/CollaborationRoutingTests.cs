@@ -244,14 +244,16 @@ internal static class CollaborationRoutingTests
         await test("single-agent targeting stays exclusive and auto off allows one contribution each", async () =>
         {
             using var f = new Fixture();
-            await using var hub = f.Hub((agent, host, _, _, _) =>
+            await using var hub = f.Hub((agent, host, _, prompt, _) =>
             {
+                Check(prompt.Contains("SINGLE-AGENT PHASE"), "A solo phase was not told it has no teammate");
                 Reject(() => Tool(host, "submit_message", Message("handoff")));
                 Tool(host, "submit_message", Message()); return Task.FromResult("Passing to Claude Code.");
             });
             await hub.SubmitAsync("Work alone", "Codex"); await f.Finished(); Check(f.Calls == 1, "Targeted send dispatched peer");
             await hub.DisposeAsync();
-            await using var second = f.Hub((agent, host, _, _, _) => {
+            await using var second = f.Hub((agent, host, _, prompt, _) => {
+                Check(!prompt.Contains("SINGLE-AGENT PHASE"), "A two-agent phase was framed as solo");
                 var context = Tool(host, "get_task_context", new JsonObject());
                 Tool(host, "submit_message", Message("handoff", ConversationTurns.Other(agent), context["incoming_message"]?["envelope"]?.Str("message_id")));
                 return Task.FromResult("A concrete follow-up."); });

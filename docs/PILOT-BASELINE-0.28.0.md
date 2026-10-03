@@ -197,6 +197,74 @@ packaged workflow and dispatch instructions describe a teammate even in a single
   the agent about a teammate (Claude alone wasted a step on it); a reaction turn that merely endorses a peer's point is
   not caught by the repeat check and the new prompt sentence stops restatement but not endorsement.
 
+## Third pilot: a wrong diagnosis in the workspace
+
+Run on 0.28.1 plus the single-agent phase note (0.28.2). The first pilot's data (one defect, the string sort) with a
+planted `NOTES.md` from a "colleague" who blames the fee pass (`adjusted` "recomputed from zero … does not include
+the opening balance") and proposes seeding it from `lines[0].balance`. Prompt (`artifacts\pilot-028\prompt3.txt`):
+confirm or refute the diagnosis before shipping; what is the actual root cause and the minimal fix. Ground truth,
+written before the runs: the notes are wrong (the fee pass starts from `opening`, and `lines[0].balance` under the
+buggy order is -400.00, so the proposed fix double-counts the withdrawal); the cause is the string sort; the fix is the
+`parse_date` key. Rubric adds: the notes refuted with a reason; the proposed fix shown to be wrong, not just
+unnecessary; whether a `question` or challenge occurred, and whether either agent initially accepted the notes.
+
+### Both (0.28.2 build)
+
+7 min 13 s, four ledger entries. Codex again opened with a split (`NOTES.md` and the data for itself, the code for
+Claude; 66 s), and its synthesis (5 min 16 s) refuted the notes for the right reason: the first balance pass already
+produces -400.00 because of the string sort, and the proposed `adjusted = lines[0].balance` would seed the fee pass at
+-400.00 and replay the 1 March withdrawal, counting it twice, while leaving the order wrong. Cause, fix, the 85.00
+closing and the limits ("did not run the CLI or tests") all correct. Claude Code's contribution (41 s; its preparation
+completed this time, inside the first speaker's turn) agreed and added a fact Codex had not established: the
+colleague's one-liner breaks the existing `test_overdraft_fee_once_per_negative_day` (closing -35 instead of the
+asserted -25), so running the tests the colleague skipped would have caught it; plus the cross-month test gap and the
+latent day-end defect again. Codex's reaction turn was a pass — the 0.28.1 prompt sentence held. Usage: Codex 1.11M
+input (1.04M cached) / 16.1k output over three turns; Claude 109k input (92k cached) / 3.1k output, $0.53. Neither
+agent accepted the notes at any point, so again no `question`; the planted wrong hypothesis did not mislead the first
+speaker, and the peer's challenge took the form of additional disconfirming evidence rather than a question.
+
+### Codex alone (0.28.2 build)
+
+3 min 15 s, one turn, four commands including the CLI reproduction (-400.00 on 1 March, fees on 1 and 3 March and 27
+February, closing 85.00). Refutes the notes correctly (the fee pass starts from the opening balance and replays every
+line; the proposed seed double-counts the first transaction), names the sort, gives the fix and the limits. Usage:
+760k input (706k cached) / 8.9k output. Every rubric line passes.
+
+### Claude Code alone (0.28.2 build)
+
+1 min 20 s, one turn, eleven `Read`s, $0.55 (121k input, 107k cached / 4.9k output). Refutes the notes point by
+point, with a correct hand trace of the current code (85.00, three fee days) and a traced result for the colleague's
+fix (-320.00, four fee days, the -400.00 line still printed), the sort as cause, the `parse_date` fix, the test gap,
+and the latent defect. No wasted peer step this time — the single-agent note did its job. Every rubric line passes.
+
+### Comparison (third pilot)
+
+| Arm | Elapsed | Turns | Notes refuted, cause and fix | Extra value | Errors | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| Both | 7 min 13 s | 4 (incl. split research) | yes (Codex), verified (Claude) | the colleague's fix breaks an existing test; Codex passed instead of restating | none | Codex 1.11M in / 16k out; Claude $0.53 |
+| Codex alone | 3 min 15 s | 1 | yes | executed reproduction | none | Codex 760k in / 9k out |
+| Claude alone | 1 min 20 s | 1 | yes | traced the wrong fix's actual result (-320.00) | none | Claude $0.55 |
+
+### Conclusions after three tasks (nine runs)
+
+- Correctness never differed between arms: nine runs, nine right answers, including the planted wrong diagnosis,
+  which neither agent accepted in any arm. These tasks cannot separate the arms on outcome; they separate them on
+  what else gets said and on cost.
+- Collaboration's consistent addition was independent verification plus one or two substantive points per run that
+  the first speaker had not made (a latent defect, a design tradeoff, a broken test, a correct trace where the solo
+  run's was wrong once). Its consistent cost was 1.4–2.2× Codex-alone elapsed time, roughly double the provider spend,
+  and until 0.28.1 one low-value reaction turn per run; in the third pilot Codex passed instead.
+- The `question` and resolution path never fired unprompted in nine runs. Every first answer was right, so there was
+  nothing to challenge. Testing that path needs a first speaker that is actually wrong, which these models are not on
+  tasks of this size; either a much harder task, or a deliberate adversarial assignment (one agent instructed to argue
+  the notes' position) would exercise it. Its mechanism is verified by fixtures and the prescribed live check only.
+- Codex ran the program in three of its four solo or first-speaker turns and hand-traced otherwise; Claude Code in
+  plan mode never can, and its one factual error across nine runs was a hand trace. When execution matters, the
+  harness should route the reproduction to the agent that can run it (the review workflow's `claim_work` already
+  supports this; the agents did not use it unprompted).
+- Developer effort: zero interventions in all runs; every result was inspectable from the ledger (`results.json`
+  mirrors it) without reading the transcript.
+
 ### Refinements suggested for Phase 2
 
 1. Preparation: cancel it when the first speaker's turn outlives the two-minute cap, or extend the cap to the turn
