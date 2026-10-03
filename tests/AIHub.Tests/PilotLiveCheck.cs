@@ -7,7 +7,7 @@ using System.Text.Json;
 // Records what happened (turns, questions, resolutions, time, usage, replies); judging correctness is the developer's job.
 internal static class PilotLiveCheck
 {
-    public static async Task Run(string output, string workspace, string target, string promptFile)
+    public static async Task Run(string output, string workspace, string target, string promptFile, string? preferencesFile = null)
     {
         output = Path.GetFullPath(output); workspace = Path.GetFullPath(workspace);
         if (Directory.Exists(output)) throw new IOException("Choose a fresh output directory.");
@@ -15,7 +15,10 @@ internal static class PilotLiveCheck
         var prompt = File.ReadAllText(promptFile).Trim();
         var local = new LocalStore(Path.Combine(output, "data"));
         using var lease = AppInstanceLease.TryAcquire(local.DirectoryPath) ?? throw new IOException("Pilot profile is busy.");
-        var memory = new TaskMemory(local); var store = new CollaborationStore(local, memory);
+        // 0.30.0: an optional preferences.json is copied into the profile, and the store supplies the relevant ones as the desktop does.
+        if (preferencesFile is not null) File.Copy(Path.GetFullPath(preferencesFile), Path.Combine(local.DirectoryPath, PreferenceStore.FileName));
+        var preferences = new PreferenceStore(local);
+        var memory = new TaskMemory(local); var store = new CollaborationStore(local, memory) { Preferences = task => preferences.Relevant(task.Workspace, task.Id) };
         var taskId = memory.Create("pilot-" + target, workspace, prompt);
         var started = Stopwatch.StartNew();
         var events = new ConcurrentQueue<object>(); var visible = new ConcurrentQueue<object>(); var pauses = new ConcurrentQueue<string>(); var states = new ConcurrentQueue<object>();

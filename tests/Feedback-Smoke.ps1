@@ -69,7 +69,32 @@ try {
  $items=$list.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)
  if ($items.Count -ne 1) { throw "Feedback list shows $($items.Count) items" }
  if (-not $items[0].Current.Name.Contains('Needs correction')) { throw "List item text is wrong: $($items[0].Current.Name)" }
+ # 4b. Make a preference from the feedback (0.30.0): the developer confirms the text; the record links back to the feedback.
+ $items[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+ Invoke-Element (Find-Control $listWindow 'MakePreferenceButton')
+ $prefDialog=Window 'Make a preference from this feedback'
+ $prefText=Find-Control $prefDialog 'PreferenceText'
+ if ($prefText.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne 'Missed the month boundary.') { throw 'Preference draft did not start from the feedback explanation' }
+ $prefText.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Always test date handling across a month boundary.')
+ Invoke-Element (Find-Control $prefDialog 'SavePreferenceButton')
+ Start-Sleep -Milliseconds 400
+ $prefFile=Join-Path $hubData 'preferences.json'
+ if (-not (Test-Path $prefFile)) { throw 'preferences.json was not written' }
+ $prefs=@(Get-Content -Raw -LiteralPath $prefFile | ConvertFrom-Json)
+ if ($prefs.Count -ne 1 -or $prefs[0].Text -ne 'Always test date handling across a month boundary.' -or $prefs[0].Origin -ne 'from_feedback' -or @($prefs[0].SupportingFeedbackIds)[0] -ne $record.Id -or $prefs[0].Scope -ne 1 -or $prefs[0].Workspace -ne $workspace -or $prefs[0].Enabled -ne $true) { throw "Preference record is wrong: $($prefs[0] | ConvertTo-Json -Compress)" }
  Invoke-Element (Find-Control $listWindow 'CloseFeedbackButton')
+ # 4c. The Preferences window lists it and can disable it.
+ Invoke-Element (Find-Control $tasks 'PreferencesButton')
+ $prefWindow=Window 'Preferences'
+ $prefList=Find-Control $prefWindow 'PreferenceList'
+ $prefItems=$prefList.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)
+ if ($prefItems.Count -ne 1 -or -not $prefItems[0].Current.Name.Contains('from feedback')) { throw "Preferences list is wrong: $($prefItems.Count)" }
+ $prefItems[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+ Invoke-Element (Find-Control $prefWindow 'TogglePreferenceButton')
+ Start-Sleep -Milliseconds 400
+ $prefs=@(Get-Content -Raw -LiteralPath $prefFile | ConvertFrom-Json)
+ if ($prefs[0].Enabled -ne $false -or $prefs[0].Version -ne 1) { throw 'Disabling did not persist, or bumped the version' }
+ Invoke-Element (Find-Control $prefWindow 'ClosePreferencesButton')
  Invoke-Element (Find-Control $tasks 'CloseTasksButton')
  Invoke-Element (Find-Named $main 'Feedback on message')
  $dialog=Window "Feedback on Codex's message"

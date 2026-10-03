@@ -100,16 +100,16 @@ public sealed class FeedbackStore
             return true;
         }
     }
-    /// <summary>Removes a deleted conversation's feedback; returns how many records went with it.</summary>
-    public int DeleteRoom(string roomId)
+    /// <summary>Removes a deleted conversation's feedback; returns the ids that went with it so dependent preferences can react.</summary>
+    public string[] DeleteRoom(string roomId)
     {
         lock (gate)
         {
             var removed = records.Where(r => r.RoomId == roomId).ToArray();
-            if (removed.Length == 0) return 0;
+            if (removed.Length == 0) return [];
             records.RemoveAll(r => r.RoomId == roomId);
             try { Persist(); } catch { records.AddRange(removed); throw; }
-            return removed.Length;
+            return removed.Select(r => r.Id).ToArray();
         }
     }
     public FeedbackRecord[] All() { lock (gate) return records.OrderByDescending(r => r.Updated).Select(Copy).ToArray(); }

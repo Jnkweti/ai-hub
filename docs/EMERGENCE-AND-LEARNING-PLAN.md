@@ -69,12 +69,12 @@ Acceptance: Feedback survives restart and can be traced to its source. The devel
 
 ## Phase 4 Apply inspectable preference memory
 
-- [ ] Store preferences with their scope, supporting feedback, confidence, date, and superseded state. Inferred preferences remain visibly tentative.
-- [ ] Retrieve only relevant preferences into the task context and record which preference versions were supplied to each agent.
-- [ ] Give current explicit instructions precedence over learned preferences. Resolve conflicts explicitly; do not silently turn a one-time correction into a permanent rule.
-- [ ] Provide a preference view with editing, disabling, and deletion. Invalidate derived preferences when their supporting feedback is removed, or retain them only when other evidence supports them. Removing a preference affects future inputs; explain that already-running or resumed native sessions may retain earlier context.
-- [ ] Keep shared developer preferences separate from optional per-agent behavioral experiments. Both agents can honor the same goal while contributing differently.
-- [ ] Evaluate against collaboration without preference memory, using reserved tasks and checking that useful disagreement and verified correctness are preserved.
+- [x] (0.30.0: `PreferenceRecord` with scope, supporting feedback ids, confidence, dates, enabled/disabled reason and a version per edit; nothing is inferred, so every record is developer-confirmed) Store preferences with their scope, supporting feedback, confidence, date, and superseded state. Inferred preferences remain visibly tentative.
+- [x] (0.30.0: `PreferenceStore.Relevant` by general, project and task scope; the common context lists them and input manifests record `pref:<id>:v<n>`) Retrieve only relevant preferences into the task context and record which preference versions were supplied to each agent.
+- [x] (0.30.0: the preference block sits below ACTIVE USER INSTRUCTIONS and states its lower precedence; a preference is created only when the developer writes or confirms it) Give current explicit instructions precedence over learned preferences. Resolve conflicts explicitly; do not silently turn a one-time correction into a permanent rule.
+- [x] (0.30.0: Preferences window from the Tasks window; a preference made from feedback is disabled when that feedback is deleted; the window says running or resumed sessions may retain earlier context) Provide a preference view with editing, disabling, and deletion. Invalidate derived preferences when their supporting feedback is removed, or retain them only when other evidence supports them. Removing a preference affects future inputs; explain that already-running or resumed native sessions may retain earlier context.
+- [x] (0.30.0: preferences are developer preferences supplied to both agents alike; no per-agent profiles exist) Keep shared developer preferences separate from optional per-agent behavioral experiments. Both agents can honor the same goal while contributing differently.
+- [ ] (0.30.0: one in-scope versus out-of-scope live pair on the pilot task; the reserved-task comparison remains) Evaluate against collaboration without preference memory, using reserved tasks and checking that useful disagreement and verified correctness are preserved.
 
 Acceptance: A developer preference changes behavior on a relevant later task, does not leak into unrelated tasks, and can be overridden or disabled. This is persistent adaptation through context, not model parameter training or reinforcement learning.
 

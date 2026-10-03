@@ -59,6 +59,7 @@ public partial class MainWindow
         var rate = Button("TaskFeedbackButton", "Feedback");
         var allFeedback = Button("AllFeedbackButton", "All feedback"); // Every record you made, across conversations: review, edit, delete, export.
         allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
+        var prefs = Button("PreferencesButton", "Preferences"); // Standing preferences supplied to agents in scope (0.30.0).
         var merge = Button("MergeWorktreesButton", "Merge into project");
         var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
         merge.Click += async (_, _) =>
@@ -82,6 +83,7 @@ public partial class MainWindow
             finally { dropWorktrees.IsEnabled = true; }
         };
         rate.Click += (_, _) => { if (list.SelectedItem is TaskRow row) { TaskFeedback(row.Task, window, text => notice.Text = text); Refresh(true); } };
+        prefs.Click += (_, _) => { PreferenceList_Click(prefs, new RoutedEventArgs()); Refresh(true); };
         packet.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
@@ -200,6 +202,8 @@ public partial class MainWindow
                 string.Join("\n\n", task.LatestReplies.Select(p => p.Key + ": " + p.Value));
             if (task is not null && feedback.ForTask(task.Id) is { Length: > 0 } judged)
                 details.Text += "\n\nYour feedback (local; agents are not shown it):\n" + string.Join("\n", judged.OrderBy(r => r.Updated).Select(r => "- " + FeedbackStore.Summary(r)));
+            if (task is not null && preferences.Relevant(task.Workspace, task.Id) is { Length: > 0 } supplied)
+                details.Text += "\n\nPreferences supplied on this task's next phase (below your instructions):\n" + string.Join("\n", supplied.Select(p => "- " + PreferenceStore.Describe(p)));
             if (task is not null)
             {
                 if (layout is not null)

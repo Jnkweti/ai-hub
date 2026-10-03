@@ -85,7 +85,7 @@ internal static class FeedbackTests
             {
                 var store = new FeedbackStore(new LocalStore(root));
                 var kept = store.Add(Sample("room-keep")); store.Add(Sample("room-gone")); store.Add(Sample("room-gone"));
-                Check(store.DeleteRoom("room-gone") == 2 && store.DeleteRoom("room-gone") == 0 && store.All().Single().Id == kept.Id, "Room deletion removed the wrong feedback");
+                Check(store.DeleteRoom("room-gone").Length == 2 && store.DeleteRoom("room-gone").Length == 0 && store.All().Single().Id == kept.Id, "Room deletion removed the wrong feedback");
                 var markdown = FeedbackStore.Export(store.All());
                 Check(markdown.Contains("Useful · Codex") && markdown.Contains("message " + kept.MessageId) && markdown.Contains("dispatch " + kept.DispatchId) && markdown.Contains("task " + kept.TaskId) && markdown.Contains("Outcome when recorded: Ready") && markdown.Contains("correctness, scope") && markdown.Contains("Found the real cause."),
                     "Export is missing links, outcome or dimensions");

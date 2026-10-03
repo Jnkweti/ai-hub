@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private readonly TaskMemory taskMemory;
     private readonly CollaborationStore collaborationStore;
     private readonly FeedbackStore feedback; // Explicit developer feedback on messages and tasks; local only, never supplied to agents.
+    private readonly PreferenceStore preferences; // Developer-confirmed preferences, supplied in scope below instructions (0.30.0).
     private readonly RuntimeAudit audit;
     private sealed class RoomWorker(Room room, HubCoordinator hub)
     {
@@ -59,6 +60,8 @@ public partial class MainWindow : Window
         taskMemory = new(store);
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);
         feedback = new(store);
+        preferences = new(store);
+        collaborationStore.Preferences = task => preferences.Relevant(task.Workspace, task.Id);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
         if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
         // Crash-class failures are recorded and flushed immediately; the failure itself is not suppressed.
@@ -835,8 +838,8 @@ public partial class MainWindow : Window
             await statusStore.ForgetAsync(room.Workspace, room.Id, timeout.Token);
             collaborationStore.DeleteRoom(room.Id, () => store.DeleteRoom(rooms.ToList(), room.Id));
             rooms.Remove(room);
-            try { feedback.DeleteRoom(room.Id); } // The conversation is gone; its feedback goes with it. A failure here leaves orphaned records, not a kept room.
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AddActivity("Hub", "Feedback cleanup", "Feedback for the deleted conversation could not be removed: " + ex.Message); }
+            try { foreach (var removed in feedback.DeleteRoom(room.Id)) preferences.FeedbackDeleted(removed); } // The conversation is gone; its feedback goes with it, and preferences that rested only on it are disabled.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { AddActivity("Hub", "Feedback cleanup", "Feedback for the deleted conversation could not be fully removed: " + ex.Message); }
             SelectActiveRoom(); Save();
             StateLabel.Text = "Conversation deleted · project files and provider history were kept";
         }

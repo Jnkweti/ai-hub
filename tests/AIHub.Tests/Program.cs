@@ -25,8 +25,8 @@ if (args.Length == 2 && args[0] == "--live-stream-live")
 { await LiveStreamLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--challenge-live")
 { await ChallengeResolutionLiveCheck.Run(args[1]); return; }
-if (args.Length == 5 && args[0] == "--pilot-live")
-{ await PilotLiveCheck.Run(args[1], args[2], args[3], args[4]); return; }
+if (args.Length is 5 or 6 && args[0] == "--pilot-live")
+{ await PilotLiveCheck.Run(args[1], args[2], args[3], args[4], args.Length == 6 ? args[5] : null); return; }
 if (args.Length == 4 && args[0] == "--preparation-live")
 { await PreparationLiveCheck.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 2 && args[0] == "--shared-work-live")
@@ -425,6 +425,7 @@ await FollowUpAuditTests.Run(Test);
 await LiveStreamTests.Run(Test);
 await ChallengeResolutionTests.Run(Test);
 await FeedbackTests.Run(Test);
+await PreferenceTests.Run(Test);
 await HardeningTests.Run(Test);
 await WorktreeTests.Run(Test);
 await SharedContextTests.Run(Test);

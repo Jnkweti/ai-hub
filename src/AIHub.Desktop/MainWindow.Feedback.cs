@@ -88,8 +88,8 @@ public partial class MainWindow
         delete.Click += (_, _) =>
         {
             if (MessageBox.Show(window, "Delete this feedback record? This cannot be undone.", "Delete feedback", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
-            try { changed = feedback.Delete(draft.Id); window.Close(); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notice.Text = "Could not delete: " + ex.Message; }
+            try { changed = feedback.Delete(draft.Id); if (changed) preferences.FeedbackDeleted(draft.Id); window.Close(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { notice.Text = "Could not delete: " + ex.Message; }
         };
         save.Click += (_, _) =>
         {
@@ -130,7 +130,13 @@ public partial class MainWindow
         var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         Grid.SetRow(buttons, 3); grid.Children.Add(buttons);
         Button Button(string name, string text) { var b = new Button { Name = name, Content = text, Margin = new(6, 0, 0, 6), Padding = new(10, 8, 10, 8) }; buttons.Children.Add(b); return b; }
-        var edit = Button("EditFeedbackButton", "Open"); var export = Button("ExportFeedbackButton", "Export all"); var close = Button("CloseFeedbackButton", "Close");
+        var edit = Button("EditFeedbackButton", "Open"); var promote = Button("MakePreferenceButton", "Make preference"); var export = Button("ExportFeedbackButton", "Export all"); var close = Button("CloseFeedbackButton", "Close");
+        promote.ToolTip = "Turn this judgement into a standing preference you confirm and can edit; nothing is promoted on its own.";
+        promote.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not FeedbackRow row || feedback.Get(row.Record.Id) is not { } record) return;
+            if (MakePreferenceFromFeedback(record, window)) notice.Text = "Preference saved. It applies from the next phase of tasks in its scope; see Preferences in the Tasks window.";
+        };
         void Refresh()
         {
             var records = feedback.All();

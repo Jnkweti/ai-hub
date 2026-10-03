@@ -39,7 +39,7 @@ public static class TaskContextBuilder
         var superseded = document.ContextRecords.Where(r => r.Supersedes is not null).Select(r => r.Supersedes!).ToHashSet();
         return document.ContextRecords.Where(r => IsUserInstruction(r) && !superseded.Contains(r.Id)).OrderBy(r => r.Created).ToArray();
     }
-    public static CommonContext Build(CollaborationDocument document, string objective, IReadOnlyDictionary<string, string>? freshness = null, int budget = CommonByteLimit)
+    public static CommonContext Build(CollaborationDocument document, string objective, IReadOnlyDictionary<string, string>? freshness = null, int budget = CommonByteLimit, IReadOnlyList<PreferenceRecord>? preferences = null)
     {
         var included = new List<string>(); var omitted = new List<string>(); var partial = new List<string>();
         var body = new StringBuilder("AI HUB COMMON TASK CONTEXT\n" +
@@ -51,6 +51,21 @@ public static class TaskContextBuilder
         foreach (var record in ActiveInstructions(document)) { body.AppendLine(Encode(record)); included.Add(record.Id); if (record.OriginalHash is not null) partial.Add(record.Id); }
         if (Bytes(body.ToString()) > budget - 2500)
             throw new IOException("Active user instructions exceed the shared context budget. Open Shared context to supersede obsolete instructions, or start a separate task. No instruction was silently dropped.");
+        // Developer preferences (0.30.0): confirmed by the developer, supplied only on tasks in their scope, and ranked below every
+        // instruction above and any newer user message. Each supplied one is recorded by id and version in the input manifest.
+        if (preferences is { Count: > 0 })
+        {
+            body.AppendLine("DEVELOPER PREFERENCES (the developer's standing preferences for tasks like this; lower precedence than every instruction above and than any newer user message; follow them unless an instruction or the task itself says otherwise):");
+            var bytes = 0; var count = 0;
+            foreach (var preference in preferences)
+            {
+                var line = $"- [{PreferenceStore.SuppliedId(preference)} · {FeedbackStore.Label(preference.Scope)}] {preference.Text.Replace('\n', ' ')}";
+                var size = Bytes(line) + 1;
+                if (count >= PreferenceStore.MaxSupplied || bytes + size > PreferenceStore.SuppliedByteBudget) { omitted.Add(PreferenceStore.SuppliedId(preference)); continue; }
+                body.AppendLine(line); included.Add(PreferenceStore.SuppliedId(preference)); bytes += size; count++;
+            }
+            if (omitted.Count > 0) body.AppendLine($"({omitted.Count} further preference(s) not supplied: over the preference budget.)");
+        }
         void Optional(string id, object value)
         {
             var line = Encode(value) + "\n";
@@ -200,11 +215,16 @@ public sealed partial class CollaborationStore
             Save(document); return 0;
         }
     });
+    /// <summary>
+    /// Supplies the developer's enabled preferences for a task (0.30.0); set by the desktop from its preference store. Null
+    /// means none are supplied, which is also the test fixtures' default.
+    /// </summary>
+    public Func<WorkTask, IReadOnlyList<PreferenceRecord>>? Preferences { get; set; }
     internal CommonContext BuildCommon(TaskClaim claim, CancellationToken token)
     {
         var snapshot = memory.WithClaim(claim, task =>
         {
-            lock (gate) { var loaded = Load(task); return (Document: Copy(loaded), Workspace: Root(loaded), task.Objective); }
+            lock (gate) { var loaded = Load(task); return (Document: Copy(loaded), Workspace: Root(loaded), task.Objective, Preferences: Preferences?.Invoke(task)); }
         });
         // Hash outside state locks so progress inspection and cancellation remain responsive.
         token.ThrowIfCancellationRequested();
@@ -215,7 +235,7 @@ public sealed partial class CollaborationStore
             try { freshness[section.Id] = ContextFreshness(section, captures.Capture(section.Scope).GetAwaiter().GetResult()); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CollaborationValidationException) { freshness[section.Id] = "Unavailable: " + ex.Message; }
         }
-        return TaskContextBuilder.Build(snapshot.Document, snapshot.Objective, freshness);
+        return TaskContextBuilder.Build(snapshot.Document, snapshot.Objective, freshness, preferences: snapshot.Preferences);
     }
     internal ContextInputManifest PrepareInput(TaskClaim claim, Agent agent, string dispatchId, CommonContext common, string prompt, string? assignmentId = null) => memory.WithClaim(claim, task =>
     {
