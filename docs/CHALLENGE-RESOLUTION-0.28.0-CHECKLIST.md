@@ -7,5 +7,5 @@
 - [x] Codex default-model fallback retries on a fresh thread (resume kept the rejected model on CLI 0.159.1).
 - [x] Regression cases added; full suite passes (255).
 - [x] Live check with both real CLIs passes (`--challenge-live`), evidence under `artifacts\challenge-live-028`.
-- [ ] Package built, desktop smoke checks, installation: not part of this slice (handoff).
+- [x] Package built from `572377d`, desktop smoke checks passed, installed on the user's go-ahead ("ok get to work", October 3, 2026) and reopened as 0.28.0.0.
 - [ ] Unprescribed pilot task and solo starting point (Phase 0/2).

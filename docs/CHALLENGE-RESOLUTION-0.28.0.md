@@ -59,7 +59,14 @@ Fixture results and live results are listed separately.
   Codex 12,011 then 4,512 bytes, Claude 16,104 then 4,993 bytes. Usage: Codex 229k input (187k cached) / 2.5k output
   over 2 turns; Claude 185k input (151k cached) / 1.0k output, $0.78. One expected `gpt-6.1-sol` rejection preceded the
   fallback. Evidence: `artifacts\challenge-live-028\results.json` and `events.json` (git-ignored).
-- Not done: desktop smoke checks, package build and installation (the handoff excludes installation from this slice).
+- Package `artifacts\challenge-028-release` (file version 0.28.0.0) built from commit `572377d` with `Build.ps1 -Test`
+  (255 tests again) and passed `tests\Local-Diagnostics-Smoke.ps1` and `tests\Conversation-Management-Smoke.ps1` (all four
+  conversation-management cases).
+- Installed on October 3, 2026 on the user's "ok get to work" after the report; the app was not running:
+  `artifacts\challenge-028-install-result.json` (612 files verified, package hashes match, 19 profile files verified,
+  production data unchanged, backups `before-collaboration-20261003-151534.zip` and
+  `before-collaboration-data-20261003-151534.zip`). Reopened as 0.28.0.0 with 5 rooms and 2 tasks intact:
+  `artifacts\challenge-028-reopen-result.json`. The Codex fallback fix is therefore live for the installed app.
 
 ## What this does and does not show
 
