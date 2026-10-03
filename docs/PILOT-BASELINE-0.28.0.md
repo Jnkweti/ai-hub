@@ -294,6 +294,29 @@ Producing a genuine first-speaker error needs a task hard enough that a capable 
 first pass — a larger codebase with an interaction bug, or a question whose evidence is split across files the first
 speaker does not open — which is a different pilot design (and cost) than the planted-bug project allows.
 
+## Fifth run: execution routing (0.28.3 build)
+
+The first pilot's task addressed to Claude Code ("Claude, Customers report …"), with the 0.28.3 read-only note that
+tells a plan-mode session to hand a needed command to its teammate as a `question`. Both agents selected; the message
+addresses Claude, so Codex is dispatched only if Claude asks it for something.
+
+5 min 50 s, two entries, paused. Claude Code (79 s) found the cause and the fix from source, predicted the current
+output by hand (correctly), and — for the first time in eleven runs without being told which tool to call — submitted
+a `question` to Codex asking it to run the reproduction and the test suite "so the predicted output is confirmed by
+captured evidence rather than my hand trace". Codex's turn (4 min 31 s) ran the CLI, which matched the prediction
+line for line (host evidence `8639187f…`), but `python -m pytest tests -q` exited 1 before collection because the
+read-only sandbox has no writable temp directory for pytest's capture file; its request to retry with temp-file access
+was declined (the pilot runner denies every approval), so it answered with `status blocked`, which pauses the run for
+the user by design. The question is therefore recorded as interrupted and no resolution turn ran. Usage: Codex 1.49M
+input (1.29M cached) / 11.3k output; Claude 247k input (213k cached) / 6.1k output, $1.03.
+
+What this shows: the routing note changes behavior — a read-only Claude asked for execution instead of hand-tracing,
+and the host captured the output as citable evidence. Two frictions: (1) Codex spent most of its turn re-running the
+two commands (seven captured commands for two requested) to make `claim_work`'s `operation` match the host's recorded
+command, which is the full PowerShell invocation rather than the Python command the agent typed; (2) a `blocked`
+answer carries useful partial evidence (the CLI output) but the pause happens before the asker can act on it, so the
+decision waits for the user's next message, where the answer arrives as a stream event.
+
 ### Refinements suggested for Phase 2
 
 1. Preparation: cancel it when the first speaker's turn outlives the two-minute cap, or extend the cap to the turn

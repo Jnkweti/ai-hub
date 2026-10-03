@@ -29,7 +29,9 @@ public sealed class ClaudeClient(AgentOptions options, string? sessionId = null)
     public const string ReadOnlyNote = "READ-ONLY MODE: this session runs in plan mode so that no file, shell or system state changes. " +
         "The ai_hub MCP tools are the host's message channel, not workspace changes: they are pre-approved in this mode and you must use them, " +
         "including submit_message for your one terminal structured message. Do not ask the user for permission to submit it, and do not report " +
-        "plan mode as a blocker.";
+        "plan mode as a blocker. When a conclusion depends on running a command (a reproduction, a test, a script) and a teammate is selected, " +
+        "do not hand-trace the result: submit a question to the teammate naming the exact command and what its output would settle; it can run " +
+        "read-only commands, the host captures the output as evidence, and its answer comes back to you for your decision.";
     public async Task ConnectAsync(CancellationToken token)
     {
         if (wire is { Alive: true }) return;

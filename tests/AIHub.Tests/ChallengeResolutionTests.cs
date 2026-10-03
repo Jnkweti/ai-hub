@@ -77,6 +77,14 @@ internal static class ChallengeResolutionTests
                 $"Auto off did not pause after the answer: calls {f.Calls}, state {f.Memory.Get(f.TaskId)!.State}, reason '{f.Memory.Get(f.TaskId)!.Reason}'");
             Check(f.Store.Read(f.TaskId).Entries[0].Message.State == DeliveryState.Answered, "The question was not marked answered");
         });
+        await test("a read-only Claude session is told to route a needed command to its teammate as a question", () =>
+        {
+            // Plan mode cannot execute; the pilots' only factual error was a hand trace. The answer returns through the resolution path.
+            Check(ClaudeClient.ReadOnlyNote.Contains("submit a question to the teammate naming the exact command") && ClaudeClient.ReadOnlyNote.Contains("do not hand-trace"),
+                "The read-only note does not route reproductions to the teammate");
+            Check(ClaudeClient.ReadOnlyNote.Contains("a teammate is selected"), "The routing advice is not conditioned on a teammate being present");
+            return Task.CompletedTask;
+        });
         await test("a resolution dispatch requires a peer's answer to this agent's own question", () =>
         {
             using var f = new Fixture(); var claim = f.Begin(); var participants = new[] { Agent.Codex, Agent.Claude };
