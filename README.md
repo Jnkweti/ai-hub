@@ -28,6 +28,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
+Version **0.32.0** starts strategy learning in shadow mode: for each message to both agents, a fixed, versioned policy notes which strategy it would have chosen and why, beside the one that ran; nothing it suggests is executed. The Tasks window shows the record; Settings can turn it off. Feedback now carries the strategy it judged, so the two can be compared later. See [shadow strategy 0.32.0](docs/SHADOW-STRATEGY-0.32.0.md).
+
 Version **0.31.0** makes the collaboration strategy selectable in Settings: the default reaction rounds, or independent answers followed by a synthesis in which the first speaker weighs both answers against the files and gives one result. Each phase records which strategy ran. See [strategy 0.31.0](docs/STRATEGY-0.31.0.md).
 
 Version **0.30.0** adds preference memory you control: write a preference, or make one from a feedback record, choose whether it applies to this project, this task, a kind of task or in general, and the Hub supplies the enabled ones in scope to both agents below your instructions, recording which version each agent received. Edit, disable, delete or export them from Preferences in the Tasks window; a preference made from feedback is disabled if you delete that feedback. See [preferences 0.30.0](docs/PREFERENCES-0.30.0.md).

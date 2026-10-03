@@ -204,6 +204,8 @@ public partial class MainWindow
                 details.Text += "\n\nYour feedback (local; agents are not shown it):\n" + string.Join("\n", judged.OrderBy(r => r.Updated).Select(r => "- " + FeedbackStore.Summary(r)));
             if (task is not null && preferences.Relevant(task.Workspace, task.Id) is { Length: > 0 } supplied)
                 details.Text += "\n\nPreferences supplied on this task's next phase (below your instructions):\n" + string.Join("\n", supplied.Select(p => "- " + PreferenceStore.Describe(p)));
+            if (task is not null && shadowLog.ForTask(task.Id) is { Length: > 0 } shadows)
+                details.Text += "\n\nShadow strategy (recorded, never executed):\n" + string.Join("\n", shadows.Select(d => "- " + ShadowStrategyLog.Describe(d))) + "\n" + ShadowStrategyLog.Summary(shadowLog.All());
             if (task is not null)
             {
                 if (layout is not null)

@@ -40,6 +40,8 @@ public sealed class FeedbackRecord
     public string AppVersion { get; set; } = "";
     /// <summary>Fingerprint of the coordination settings in force when the judged work ran, so later comparisons know what strategy produced it.</summary>
     public string StrategyVersion { get; set; } = "";
+    /// <summary>The collaboration strategy setting when the feedback was recorded ("reaction" or "independent"), for per-strategy comparison (0.32.0).</summary>
+    public string Strategy { get; set; } = "";
     /// <summary>SHA-256 of the judged text at the time, so a later edit of the message is detectable without storing the text.</summary>
     public string ExcerptHash { get; set; } = "";
 }
@@ -159,7 +161,7 @@ public sealed class FeedbackStore
         if (r.Dimensions is null || r.Dimensions.Distinct().Count() != r.Dimensions.Length || r.Dimensions.Any(d => !KnownDimensions.Contains(d))) throw new ArgumentException("Dimensions must be distinct and from the known set.");
         if (r.Kind == FeedbackKind.PreferredAlternative && r.AlternativeMessageId is null && r.Explanation.Trim().Length == 0) throw new ArgumentException("Say what you preferred instead, or pick the message you preferred.");
         if (r.Agent is null || r.Agent.Length > 32 || r.Workspace is null || r.Workspace.Length > 1024 || r.OutcomeState is null || r.OutcomeState.Length > 32 || r.OutcomeReason is null || r.OutcomeReason.Length > 2000 ||
-            r.AppVersion is null || r.AppVersion.Length > 32 || r.StrategyVersion is null || r.StrategyVersion.Length > 64 || r.ExcerptHash is null || r.ExcerptHash.Length > 64)
+            r.AppVersion is null || r.AppVersion.Length > 32 || r.StrategyVersion is null || r.StrategyVersion.Length > 64 || r.ExcerptHash is null || r.ExcerptHash.Length > 64 || r.Strategy is null || r.Strategy.Length > 32)
             throw new ArgumentException("Feedback metadata is oversized.");
     }
     private static bool Repair(List<FeedbackRecord> items)
@@ -172,7 +174,7 @@ public sealed class FeedbackStore
             r.LedgerMessageId = Identifier(r.LedgerMessageId, false) ? r.LedgerMessageId : null; r.AlternativeMessageId = Identifier(r.AlternativeMessageId, false) ? r.AlternativeMessageId : null;
             r.TaskId = Identifier(r.TaskId, true) ? r.TaskId : "";
             r.Explanation = Bound(r.Explanation, MaxExplanation); r.Category = Bound(r.Category, MaxCategory); r.Agent = Bound(r.Agent, 32); r.Workspace = Bound(r.Workspace, 1024);
-            r.OutcomeState = Bound(r.OutcomeState, 32); r.OutcomeReason = Bound(r.OutcomeReason, 2000); r.AppVersion = Bound(r.AppVersion, 32); r.StrategyVersion = Bound(r.StrategyVersion, 64); r.ExcerptHash = Bound(r.ExcerptHash, 64);
+            r.OutcomeState = Bound(r.OutcomeState, 32); r.OutcomeReason = Bound(r.OutcomeReason, 2000); r.AppVersion = Bound(r.AppVersion, 32); r.StrategyVersion = Bound(r.StrategyVersion, 64); r.ExcerptHash = Bound(r.ExcerptHash, 64); r.Strategy = Bound(r.Strategy, 32);
             r.Dimensions = (r.Dimensions ?? []).Where(d => d is not null && KnownDimensions.Contains(d)).Distinct().ToArray();
             if (r.Scope == FeedbackScope.Category && r.Category.Trim().Length == 0) r.Scope = FeedbackScope.Task;
         }

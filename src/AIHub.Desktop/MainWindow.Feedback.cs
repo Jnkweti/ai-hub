@@ -101,7 +101,7 @@ public partial class MainWindow
                 r.Scope = (scope.SelectedItem as ComboBoxItem)?.Tag is FeedbackScope s ? s : FeedbackScope.Task;
                 r.Category = r.Scope == FeedbackScope.Category ? category.Text.Trim() : "";
                 r.OutcomeState = task?.State.ToString() ?? ""; r.OutcomeReason = Truncate(task?.Reason ?? "", 2000);
-                r.AppVersion = AppVersion; r.StrategyVersion = FeedbackStore.StrategyFingerprint(settings); r.ExcerptHash = FeedbackStore.Fingerprint(judgedText);
+                r.AppVersion = AppVersion; r.StrategyVersion = FeedbackStore.StrategyFingerprint(settings); r.Strategy = settings.Strategy; r.ExcerptHash = FeedbackStore.Fingerprint(judgedText);
             }
             try
             {

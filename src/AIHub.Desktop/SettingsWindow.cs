@@ -45,6 +45,8 @@ public sealed class SettingsWindow : Window
         strategy.SelectedIndex = Settings.Strategy == "independent" ? 1 : 0;
         panel.Children.Add(strategy);
         Description("Reaction rounds: the first agent answers, the other adds or passes, and each contribution gives the other a chance to react. Independent answers: both answer the same message without seeing each other, then the first speaker synthesizes the two; the phase ends there. Messages that name one agent keep the usual routing.");
+        var shadow = new CheckBox { Name = "ShadowStrategyToggle", Content = "Record shadow strategy suggestions", IsChecked = Settings.ShadowStrategy, Margin = new(0,0,0,0) };
+        panel.Children.Add(shadow); Description("For each message to both agents, note which strategy a fixed, versioned policy would have picked and why, beside the one that ran. Suggestions are only recorded, never executed; the Tasks window shows them.");
         var idleRow = new StackPanel { Orientation = Orientation.Horizontal };
         var idle = new TextBox { Name = "TurnInactivityInput", Text = Math.Clamp(Settings.TurnInactivitySeconds, 30, 3600).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         idleRow.Children.Add(idle); idleRow.Children.Add(new TextBlock { Text = "seconds without provider output before a turn is stopped", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(idleRow);
@@ -142,6 +144,7 @@ public sealed class SettingsWindow : Window
             Settings.AllowEdits = edits.IsChecked == true; Settings.ReduceMotion = reduced.IsChecked == true; Settings.MaxAutoRounds = count;
             Settings.StatusInspector = inspector.SelectedIndex == 1 ? Agent.Claude : Agent.Codex;
             Settings.Strategy = strategy.SelectedIndex == 1 ? "independent" : "reaction";
+            Settings.ShadowStrategy = shadow.IsChecked == true;
             Settings.CollectLocalDiagnostics = diagnostics.IsChecked == true;
             DialogResult = true;
         };

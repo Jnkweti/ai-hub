@@ -81,6 +81,8 @@ public class HubSettings
     public bool AutoExchange { get; set; } = true;
     /// <summary>Collaboration strategy for messages to both agents: "reaction" (default rounds) or "independent" (independent answers, then synthesis). 0.31.0.</summary>
     public string Strategy { get; set; } = "reaction";
+    /// <summary>Record, per two-agent phase, which strategy the shadow policy would have chosen (0.32.0). Never changes what runs.</summary>
+    public bool ShadowStrategy { get; set; } = true;
     public bool ReduceMotion { get; set; }
     public int MaxAutoRounds { get; set; } = CollaborationGuard.DefaultMaxRounds;
     public string LastRoomId { get; set; } = "";

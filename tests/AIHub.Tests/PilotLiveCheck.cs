@@ -17,7 +17,7 @@ internal static class PilotLiveCheck
         using var lease = AppInstanceLease.TryAcquire(local.DirectoryPath) ?? throw new IOException("Pilot profile is busy.");
         // 0.30.0: an optional preferences.json is copied into the profile, and the store supplies the relevant ones as the desktop does.
         if (preferencesFile is not null) File.Copy(Path.GetFullPath(preferencesFile), Path.Combine(local.DirectoryPath, PreferenceStore.FileName));
-        var preferences = new PreferenceStore(local);
+        var preferences = new PreferenceStore(local); var shadowLog = new ShadowStrategyLog(local); var feedbackStore = new FeedbackStore(local);
         var memory = new TaskMemory(local); var store = new CollaborationStore(local, memory) { Preferences = task => preferences.Relevant(task.Workspace, task.Id) };
         var taskId = memory.Create("pilot-" + target, workspace, prompt);
         var started = Stopwatch.StartNew();
@@ -27,6 +27,11 @@ internal static class PilotLiveCheck
         {
             AutoExchange = true, AllowEdits = false, TaskMemory = memory, TaskId = taskId, CollaborationStore = store,
             Strategy = HubCoordinator.ParseStrategy(Environment.GetEnvironmentVariable("AIHUB_PILOT_STRATEGY")), // "independent" selects the 0.31.0 strategy.
+            StrategyShadow = (p, id, generation, executed) => // 0.32.0: the shadow policy's choice is recorded in the profile and the stream.
+            {
+                var context = StrategyAdvisor.Describe(p, id, generation, 2, feedbackStore.All()); var (suggested, reason) = StrategyAdvisor.Suggest(context);
+                return ShadowStrategyLog.Describe(shadowLog.Record(context, suggested, reason, HubCoordinator.StrategySetting(executed)));
+            },
             CollaborationBridgePath = CollaborationTests.Bridge, CollaborationWorkflowDirectory = Path.Combine(CollaborationTests.Root, "plugins", "ai-hub-collaboration"),
             CollaborationFactory = (agent, connection) => agent == Agent.Codex
                 ? new CodexClient(codexOptions with { Collaboration = connection }) : new ClaudeClient(claudeOptions with { Collaboration = connection }),

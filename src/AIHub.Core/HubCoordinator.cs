@@ -76,6 +76,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     public CollaborationStrategy Strategy { get; set; } = CollaborationStrategy.ReactionRounds;
     public static CollaborationStrategy ParseStrategy(string? value) => value == "independent" ? CollaborationStrategy.IndependentThenSynthesis : CollaborationStrategy.ReactionRounds;
     public static string StrategyName(CollaborationStrategy strategy) => strategy == CollaborationStrategy.IndependentThenSynthesis ? "independent answers, then synthesis" : "reaction rounds";
+    public static string StrategySetting(CollaborationStrategy strategy) => strategy == CollaborationStrategy.IndependentThenSynthesis ? "independent" : "reaction";
+    /// <summary>
+    /// Shadow mode (0.32.0): called once per two-agent phase with the prompt, task, phase and the strategy about to run; returns a
+    /// line to record in the stream (what the shadow policy would have chosen and why), or null. It never changes what runs.
+    /// </summary>
+    public Func<string, string, long, CollaborationStrategy, string?>? StrategyShadow { get; set; }
     private const string SynthesisInstruction = "Both of you answered the user's message independently, without seeing each other; your teammate's answer is the PRECEDING AGENT RESPONSE below. " +
         "Produce the single best answer for the user. Where the two answers differ, say which is right and why, checking the files yourself rather than averaging. Keep what only one of you found if it holds. " +
         "State what remains unverified. This synthesis is the final step of this phase unless you need something specific from your teammate.";
@@ -529,6 +535,16 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     (addressed is null ? "" : $" The message addresses {ConversationTurns.Name(addressed.Value)}.") +
                     (carried.Count == 0 ? "" : $" Resumed native sessions: {string.Join(", ", carried.Select(ConversationTurns.Name))}.") +
                     (participants.Length == 2 && addressed is null ? $" Strategy: {StrategyName(independent ? CollaborationStrategy.IndependentThenSynthesis : CollaborationStrategy.ReactionRounds)}." : ""));
+                if (participants.Length == 2 && addressed is null && StrategyShadow is not null)
+                {
+                    // The shadow policy's choice is recorded beside what actually runs; a failure to record never affects the phase.
+                    try
+                    {
+                        if (StrategyShadow(prompt, claim.TaskId, claim.Generation, independent ? CollaborationStrategy.IndependentThenSynthesis : CollaborationStrategy.ReactionRounds) is { Length: > 0 } shadow)
+                            CollaborationStore.AppendEvent(claim, "system", "AI Hub", "Shadow strategy: " + shadow);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) { Event?.Invoke(new(next, EventKind.Status, "Shadow strategy was not recorded: " + ex.Message)); }
+                }
                 initialCommon = await Task.Run(() => CollaborationStore.BuildCommon(claim, token), token);
                 // A greeting or acknowledgement gets one quick reply; preparing the other agent for it would be a wasted model turn.
                 // So would preparing an agent the message does not address, one whose resumed session already holds the task, or one

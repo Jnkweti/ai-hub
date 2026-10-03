@@ -33,6 +33,13 @@ public partial class MainWindow : Window
     private readonly CollaborationStore collaborationStore;
     private readonly FeedbackStore feedback; // Explicit developer feedback on messages and tasks; local only, never supplied to agents.
     private readonly PreferenceStore preferences; // Developer-confirmed preferences, supplied in scope below instructions (0.30.0).
+    private readonly ShadowStrategyLog shadowLog; // What the shadow strategy policy would have chosen per phase; never executed (0.32.0).
+    private string? ShadowAdvice(string prompt, string taskId, long generation, HubCoordinator.CollaborationStrategy executed)
+    {
+        var context = StrategyAdvisor.Describe(prompt, taskId, generation, 2, feedback.All());
+        var (suggested, reason) = StrategyAdvisor.Suggest(context);
+        return ShadowStrategyLog.Describe(shadowLog.Record(context, suggested, reason, HubCoordinator.StrategySetting(executed)));
+    }
     private readonly RuntimeAudit audit;
     private sealed class RoomWorker(Room room, HubCoordinator hub)
     {
@@ -61,6 +68,7 @@ public partial class MainWindow : Window
         collaborationStore = new(store, taskMemory, preserveUnavailableTasks: true, deferRecovery: true);
         feedback = new(store);
         preferences = new(store);
+        shadowLog = new(store);
         collaborationStore.Preferences = task => preferences.Relevant(task.Workspace, task.Id);
         audit = new(store.DirectoryPath, typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown", settings.CollectLocalDiagnostics);
         if (store.RecoveryNotices.Count > 0) audit.Record(AuditCode.RecoveryNotice);
@@ -140,7 +148,7 @@ public partial class MainWindow : Window
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
         {
             AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TurnInactivitySeconds = settings.TurnInactivitySeconds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
-            Strategy = HubCoordinator.ParseStrategy(settings.Strategy),
+            Strategy = HubCoordinator.ParseStrategy(settings.Strategy), StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null,
             ProviderUnavailableUntil = agent => settings.ProviderUnavailableUntil.TryGetValue(agent.ToString(), out var until) && until > DateTimeOffset.Now ? until : null,
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
@@ -622,7 +630,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; worker.Hub.Strategy = HubCoordinator.ParseStrategy(settings.Strategy); }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; worker.Hub.Strategy = HubCoordinator.ParseStrategy(settings.Strategy); worker.Hub.StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null; }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();
