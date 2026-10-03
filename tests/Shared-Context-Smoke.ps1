@@ -11,7 +11,7 @@ $hubTask = $hubTasks[0]
 @{Workspace=$hubTask.Workspace;LastRoomId=$hubTask.RoomId;AllowEdits=$false;AutoExchange=$false;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 ConvertTo-Json -Depth 8 -InputObject @(@{Id=$hubTask.RoomId;Title='Shared context verification';Workspace=$hubTask.Workspace;Target='Both';ActiveTaskId=$hubTask.Id;Messages=@()}) | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
 $hubPrevious = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubProcess = $null
 function Find-Control($root,[string]$id) {
  $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id)
@@ -74,5 +74,5 @@ try {
 }
 finally {
  if ($hubProcess -and -not $hubProcess.HasExited) { $hubProcess.CloseMainWindow() | Out-Null; if (-not $hubProcess.WaitForExit(15000)) { $hubProcess.Kill(); $hubProcess.WaitForExit() } }
- $env:AIHUB_DATA_DIR=$hubPrevious
+ $env:AIHUB_DATA_DIR=$hubPrevious; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

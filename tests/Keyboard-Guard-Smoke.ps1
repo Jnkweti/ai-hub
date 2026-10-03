@@ -21,7 +21,7 @@ $hubFixture = Join-Path $PSScriptRoot 'AIHub.Tests\bin\Release\net10.0\AIHub.Tes
 if (-not (Test-Path -LiteralPath $hubFixture)) { throw 'Build the AIHub.Tests project first.' }
 $hubProviderPath = if ($Live) { '' } else { $hubFixture }
 @{ Workspace=$hubRoot; CodexPath=$hubProviderPath; ClaudePath=$hubProviderPath; AutoExchange=$true; AllowEdits=$false; MaxAutoRounds=6; ReduceMotion=$true } | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
 try {
     $hubDeadline = (Get-Date).AddSeconds(15)

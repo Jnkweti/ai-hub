@@ -25,7 +25,7 @@ if ($FixturePath) { $hubFixture = $FixturePath }
 @{Workspace=$hubData;LastRoomId='input';CodexPath=$hubFixture;ClaudePath=$hubFixture;AllowEdits=$false;AutoExchange=$true;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 ConvertTo-Json -Depth 8 -InputObject @(@{Id='input';Title='Input check';Workspace=$hubData;Messages=@()}) | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
 $hubPreviousData = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 function Wait-For([scriptblock]$condition,[string]$failure) {
  $deadline = (Get-Date).AddSeconds(15)
@@ -199,5 +199,5 @@ try {
 catch { Write-Output $_.ScriptStackTrace; throw }
 finally {
  if ($hubApp -and -not $hubApp.HasExited) { $hubApp.CloseMainWindow() | Out-Null; if (-not $hubApp.WaitForExit(10000)) { $hubApp.Kill(); $hubApp.WaitForExit() } }
- $env:AIHUB_DATA_DIR = $hubPreviousData
+ $env:AIHUB_DATA_DIR = $hubPreviousData; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

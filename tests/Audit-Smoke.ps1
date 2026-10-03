@@ -13,7 +13,7 @@ ConvertTo-Json -Depth 10 -InputObject $hubRooms | Set-Content -Encoding UTF8 -Li
 $hubOriginalRooms = [IO.File]::ReadAllText((Join-Path $hubData 'rooms.json'))
 @{Workspace=$hubData;LastRoomId='audit';CodexPath=$hubFixture;ClaudePath=$hubFixture;ClaudeModel=$null;MaxAutoRounds=-3;AllowEdits=$false;AutoExchange=$false;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 $hubPreviousData = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 $hubSecond = $null
 function Wait-For([scriptblock]$condition, [string]$failure) {
@@ -74,5 +74,5 @@ try {
 finally {
  if ($hubLog -and (Test-Path -LiteralPath $hubLog)) { [IO.File]::SetAttributes($hubLog,[IO.FileAttributes]::Normal) }
  foreach ($process in @($hubApp,$hubSecond)) { if ($null -ne $process) { if (-not $process.HasExited) { $process.Kill() }; $process.Dispose() } }
- $env:AIHUB_DATA_DIR = $hubPreviousData
+ $env:AIHUB_DATA_DIR = $hubPreviousData; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

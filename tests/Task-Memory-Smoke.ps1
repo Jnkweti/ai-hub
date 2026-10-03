@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Path $hubData | Out-Null
 $hubLegacyOptions = [ordered]@{CodexModel='';ClaudeModel='';AllowEdits=$false;Workspace=$hubData} | ConvertTo-Json -Compress
 ConvertTo-Json -Depth 8 -InputObject @(@{Id='background';Title='Background task';Workspace=$hubData;Target='Codex';CodexSession='legacy-codex';ClaudeSession='legacy-claude';SessionOptions=$hubLegacyOptions;Messages=@()}) | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
 $hubPreviousData = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 function Wait-For([scriptblock]$condition,[string]$failure) {
  $deadline = (Get-Date).AddSeconds(25)
@@ -134,5 +134,5 @@ try {
 catch { Write-Output $_.ScriptStackTrace; throw }
 finally {
  if ($hubApp -and -not $hubApp.HasExited) { $hubApp.CloseMainWindow() | Out-Null; if (-not $hubApp.WaitForExit(15000)) { $hubApp.Kill(); $hubApp.WaitForExit() } }
- $env:AIHUB_DATA_DIR = $hubPreviousData
+ $env:AIHUB_DATA_DIR = $hubPreviousData; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

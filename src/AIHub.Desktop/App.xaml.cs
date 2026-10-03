@@ -32,6 +32,11 @@ public partial class App : Application
                 }
                 Shutdown(); return;
             }
+            // UI checks (AIHUB_UI_TEST=1) drive the app through UI Automation, which needs no keyboard focus: every window opens
+            // without activating, so a running check does not take over the developer's screen. (Hiding the taskbar entry would
+            // also hide the main window from Process.MainWindowHandle, which the checks use to find the app.)
+            if (Environment.GetEnvironmentVariable("AIHUB_UI_TEST") == "1")
+                Resources[typeof(Window)] = new Style(typeof(Window), Resources[typeof(Window)] as Style) { Setters = { new Setter(Window.ShowActivatedProperty, false) } };
             MainWindow = new MainWindow(); MainWindow.Show();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

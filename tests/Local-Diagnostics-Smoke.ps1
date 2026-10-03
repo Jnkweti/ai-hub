@@ -16,7 +16,7 @@ $hubDot = [string][char]0xB7
 $hubDialogTitle = "AI Hub $hubDot Local diagnostics"
 $hubReviewMode = "Audit review $hubDot read only"
 $hubPrevious = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubProcess = $null
 function Find-Control($root,[string]$id) {
  $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id)
@@ -74,5 +74,5 @@ try {
 }
 finally {
  if ($hubProcess -and -not $hubProcess.HasExited) { $hubProcess.CloseMainWindow() | Out-Null; if (-not $hubProcess.WaitForExit(15000)) { $hubProcess.Kill(); $hubProcess.WaitForExit() } }
- $env:AIHUB_DATA_DIR=$hubPrevious
+ $env:AIHUB_DATA_DIR=$hubPrevious; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

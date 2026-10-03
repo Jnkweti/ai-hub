@@ -8,7 +8,7 @@ $hubData = Join-Path $hubRoot ('artifacts\usability-smoke-' + [Guid]::NewGuid().
 New-Item -ItemType Directory -Path $hubData -Force | Out-Null
 $hubRoomSeed = @{Id='draft-room';Title='Draft persistence';Workspace=$hubRoot;LastTask='Review the project';Target='Claude';Messages=@()}
 ConvertTo-Json -InputObject @($hubRoomSeed) -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 function Start-Hub {
     $script:hubApp = Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds(15)

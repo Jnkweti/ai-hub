@@ -22,7 +22,7 @@ $hubFixture = Join-Path $PSScriptRoot 'AIHub.Tests\bin\Release\net10.0\AIHub.Tes
 if (-not (Test-Path -LiteralPath $hubFixture)) { throw 'Build the fixture runner first.' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures\visual-room.json') -Destination (Join-Path $hubData 'rooms.json')
 @{Workspace=$hubData; CodexPath=$hubFixture; ClaudePath=$hubFixture; AllowEdits=$true; AutoExchange=$true; MaxAutoRounds=1; ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
 try {
  $hubDeadline = (Get-Date).AddSeconds(15)

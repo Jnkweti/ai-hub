@@ -14,7 +14,7 @@ $hubTaskBefore=Get-Content -Raw -LiteralPath (Join-Path $hubClone 'tasks.json') 
 $hubPrevious=$env:AIHUB_DATA_DIR
 $hubProcess=$null
 try {
- $env:AIHUB_DATA_DIR=$hubClone
+ $env:AIHUB_DATA_DIR=$hubClone; $env:AIHUB_UI_TEST = '1'
  $hubProcess=Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
  $hubDeadline=(Get-Date).AddSeconds(20)
  do { Start-Sleep -Milliseconds 200; $hubProcess.Refresh() } until($hubProcess.MainWindowHandle -ne 0 -or $hubProcess.HasExited -or (Get-Date) -gt $hubDeadline)
@@ -35,5 +35,5 @@ try {
 }
 finally {
  if ($hubProcess -and -not $hubProcess.HasExited) { $hubProcess.CloseMainWindow() | Out-Null; if (-not $hubProcess.WaitForExit(15000)) { throw 'Isolated upgrade window still running' } }
- $env:AIHUB_DATA_DIR=$hubPrevious
+ $env:AIHUB_DATA_DIR=$hubPrevious; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

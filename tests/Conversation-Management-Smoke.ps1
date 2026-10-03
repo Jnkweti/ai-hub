@@ -28,7 +28,7 @@ ConvertTo-Json -InputObject $hubRooms -Depth 8 | Set-Content -Encoding UTF8 -Lit
 @{Workspace=$hubData;LastRoomId='primary';CodexPath=$hubFixture;ClaudePath=$hubFixture;AllowEdits=$true;AutoExchange=$true;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 'other log' | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'activity-other.jsonl')
 'project sentinel' | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'project.txt')
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 function Control([string]$id, $root=$script:hubWindow) {
  $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id)

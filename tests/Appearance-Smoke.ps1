@@ -8,7 +8,7 @@ if (-not $AppDirectory) { $AppDirectory = Join-Path $hubRoot 'app' }
 $hubData = Join-Path $hubRoot ('artifacts\appearance-smoke-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $hubData -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures\visual-room.json') -Destination (Join-Path $hubData 'rooms.json')
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
 try {
     $hubDeadline = (Get-Date).AddSeconds(15)

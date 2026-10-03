@@ -7,7 +7,7 @@ Add-Type -AssemblyName UIAutomationTypes
 $hubRoot = Split-Path $PSScriptRoot -Parent
 if (-not $AppDirectory) { $AppDirectory = Join-Path $hubRoot 'app' }
 $hubData = Join-Path $hubRoot ('artifacts\desktop-smoke-' + [Guid]::NewGuid().ToString('N'))
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
 try {
     $hubDeadline = (Get-Date).AddSeconds(15)

@@ -27,7 +27,7 @@ function Control($root,[string]$id) {
 }
 function Invoke($root,[string]$id) { (Control $root $id).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
 try {
- $env:AIHUB_DATA_DIR=$hubData
+ $env:AIHUB_DATA_DIR=$hubData; $env:AIHUB_UI_TEST = '1'
  $hubProcess=Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
  $main=Window 'AI Hub'
  Invoke $main 'ImportFilesButton'
@@ -54,5 +54,5 @@ try {
 }
 finally {
  if ($hubProcess -and -not $hubProcess.HasExited) { $hubProcess.CloseMainWindow() | Out-Null; if (-not $hubProcess.WaitForExit(10000)) { $hubProcess.Kill(); $hubProcess.WaitForExit() } }
- $env:AIHUB_DATA_DIR=$hubPrevious
+ $env:AIHUB_DATA_DIR=$hubPrevious; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

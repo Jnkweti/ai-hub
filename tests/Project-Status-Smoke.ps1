@@ -24,7 +24,7 @@ $hubRooms = @(@{Id='status-room';Title='Status test';Workspace=$hubProject;Draft
 ConvertTo-Json -InputObject $hubRooms -Depth 8 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
 @{Workspace=$hubProject;LastRoomId='status-room';CodexPath=$hubFixture;ClaudePath=$hubFixture;AllowEdits=$true;AutoExchange=$true;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 $hubPreviousData = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 function Wait-For([scriptblock]$condition, [string]$failure) {
  $deadline = (Get-Date).AddSeconds(15)
@@ -140,5 +140,5 @@ try {
 }
 finally {
  if ($hubApp -and -not $hubApp.HasExited) { $hubApp.Kill(); $hubApp.WaitForExit() }
- $env:AIHUB_DATA_DIR = $hubPreviousData
+ $env:AIHUB_DATA_DIR = $hubPreviousData; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

@@ -18,7 +18,7 @@ $hubFixture = Join-Path $PSScriptRoot 'AIHub.Tests\bin\Release\net10.0\AIHub.Tes
 @{Workspace=$hubData;LastRoomId='activity';CodexPath=$hubFixture;ClaudePath=$hubFixture;AllowEdits=$true;AutoExchange=$false;ReduceMotion=$true} | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'settings.json')
 ConvertTo-Json -Depth 8 -InputObject @(@{Id='activity';Title='Activity check';Workspace=$hubData;Messages=@()}) | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json')
 $hubPreviousData = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubApp = $null
 function Wait-For([scriptblock]$condition, [string]$failure) {
  $deadline = (Get-Date).AddSeconds(15)
@@ -94,5 +94,5 @@ try {
 }
 finally {
  if ($hubApp -and -not $hubApp.HasExited) { $hubApp.Kill(); $hubApp.WaitForExit() }
- $env:AIHUB_DATA_DIR = $hubPreviousData
+ $env:AIHUB_DATA_DIR = $hubPreviousData; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }

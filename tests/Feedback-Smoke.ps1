@@ -18,7 +18,7 @@ ConvertTo-Json -Depth 4 -InputObject @(
  @{TaskId='';Id=$messageId;Speaker='Codex';Text='The sort key uses the raw date string.';Route='Shared room';Time='2026-10-03T12:01:00-04:00';Complete=$true;DispatchId=$dispatchId}
 ) | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $hubData ('room-' + $roomId + '.json'))
 $hubPrevious = $env:AIHUB_DATA_DIR
-$env:AIHUB_DATA_DIR = $hubData
+$env:AIHUB_DATA_DIR = $hubData; $env:AIHUB_UI_TEST = '1'
 $hubProcess = $null
 function Find-By($root,[System.Windows.Automation.AutomationProperty]$property,[string]$value) {
  $condition = [System.Windows.Automation.PropertyCondition]::new($property,$value)
@@ -40,6 +40,10 @@ function Window([string]$name) {
 try {
  $hubProcess=Start-Process -FilePath (Join-Path $AppDirectory 'AI Hub.exe') -WindowStyle Hidden -PassThru
  $main=Window 'AI Hub'
+ # 0. A UI check must not take the developer's focus: the app opens without activating (AIHUB_UI_TEST).
+ Start-Sleep -Milliseconds 500
+ $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+ if ($focused -and $focused.Current.ProcessId -eq $hubProcess.Id) { throw 'The app took keyboard focus during a UI check' }
  # 1. The feedback button appears on the agent's message and opens the dialog for it.
  Invoke-Element (Find-Named $main 'Feedback on message')
  $dialog=Window "Feedback on Codex's message"
@@ -112,5 +116,5 @@ try {
 }
 finally {
  if ($hubProcess -and -not $hubProcess.HasExited) { try { Stop-Process -Id $hubProcess.Id -Force } catch { } }
- if ($null -eq $hubPrevious) { Remove-Item Env:AIHUB_DATA_DIR -ErrorAction SilentlyContinue } else { $env:AIHUB_DATA_DIR = $hubPrevious }
+ if ($null -eq $hubPrevious) { Remove-Item Env:AIHUB_DATA_DIR -ErrorAction SilentlyContinue } else { $env:AIHUB_DATA_DIR = $hubPrevious }; Remove-Item Env:AIHUB_UI_TEST -ErrorAction SilentlyContinue
 }
