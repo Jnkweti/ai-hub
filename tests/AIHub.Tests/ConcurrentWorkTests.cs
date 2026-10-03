@@ -125,6 +125,23 @@ internal static class ConcurrentWorkTests
             Check(new CollaborationStore(f.Local, new TaskMemory(f.Local)).Read(f.TaskId).SharedWork.Count == 3, "Work history not durable");
             return Task.CompletedTask;
         });
+        await test("a check claim matches the typed command inside the provider's shell wrapper", () =>
+        {
+            Check(CollaborationStore.CommandMatches("\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -Command 'python -m pytest tests -q'", "python -m pytest tests -q"), "Single-quoted PowerShell wrapper not matched");
+            Check(CollaborationStore.CommandMatches("\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command \"rg -n \\\"def parse_date\\\" ledger\"", "rg -n \"def parse_date\" ledger"), "Double-quoted wrapper with escaped quotes not matched");
+            Check(CollaborationStore.CommandMatches("/bin/bash -lc 'dotnet test'", "dotnet test") && CollaborationStore.CommandMatches("dotnet test", "dotnet test"), "Bash wrapper or bare command not matched");
+            Check(!CollaborationStore.CommandMatches("powershell.exe -Command 'python -m pytest tests -q; rm x'", "python -m pytest tests -q") && !CollaborationStore.CommandMatches("echo python -m pytest tests -q", "python -m pytest tests -q"),
+                "A different command was accepted as the claimed check");
+            using var f = new Fixture(); File.WriteAllText(Path.Combine(f.Memory.Get(f.TaskId)!.Workspace, "source.txt"), "before");
+            var claim = f.Begin(); var d = f.Dispatch(claim); var work = Call(d, "claim_work", Claim("check"));
+            d.Observe(new(Agent.Codex, EventKind.Tool, "commandExecution", "cmd", "{\"type\":\"commandExecution\",\"status\":\"inProgress\",\"command\":\"\\\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\\\" -NoProfile -Command 'test-command'\"}"));
+            d.Observe(new(Agent.Codex, EventKind.Tool, "commandExecution", "cmd", "{\"type\":\"commandExecution\",\"status\":\"completed\",\"exitCode\":0}"));
+            var evidence = f.Store.Read(f.TaskId).Evidence.Single().Id;
+            Call(d, "complete_work", Result(work, evidence));
+            Check(f.Store.Read(f.TaskId).SharedWork.Single().State == "completed", "Wrapped command evidence did not complete the check");
+            d.Abort("test"); f.Memory.End(claim, WorkState.Ready, "test");
+            return Task.CompletedTask;
+        });
         await test("check reuse requires native matching successful stable evidence and owning dispatch", () =>
         {
             using var f = new Fixture(); File.WriteAllText(Path.Combine(f.Memory.Get(f.TaskId)!.Workspace, "source.txt"), "before");

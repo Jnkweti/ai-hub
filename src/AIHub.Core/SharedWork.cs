@@ -27,6 +27,22 @@ public sealed partial class CollaborationStore
         return TaskContextBuilder.Fingerprint(Environment.OSVersion + "\n" + Environment.Version + "\n" +
             string.Join("\n", names.Select(n => n.ToUpperInvariant() + "=" + (Environment.GetEnvironmentVariable(n) ?? ""))));
     }
+    // Evidence records what the provider ran, which for Codex on Windows is a PowerShell wrapper around the command the agent
+    // typed (0.28.3 pilot: Codex re-ran commands to make its claim match the wrapper). A check claim names the typed command,
+    // so the whole line or the command inside a recognized shell wrapper may match it.
+    private static readonly System.Text.RegularExpressions.Regex ShellWrapper = new(
+        @"^""?(?:[^""\s]*[\\/])?(?:powershell|pwsh|cmd|bash|sh|zsh)(?:\.exe)?""?\s+(?:-\S+\s+)*?(?:-Command|-[A-Za-z]*c|/c)\s+(?<inner>.+)$",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    internal static bool CommandMatches(string captured, string operation)
+    {
+        captured = captured.Trim(); operation = operation.Trim();
+        if (captured == operation) return true;
+        var wrapper = ShellWrapper.Match(captured);
+        if (!wrapper.Success) return false;
+        var inner = wrapper.Groups["inner"].Value.Trim();
+        if (inner.Length >= 2 && (inner[0] == '\'' && inner[^1] == '\'' || inner[0] == '"' && inner[^1] == '"')) inner = inner[1..^1].Replace("\\\"", "\"").Replace("''", "'");
+        return inner.Trim() == operation;
+    }
     private static void WorkFields(JsonNode? args, params string[] keys)
     {
         if (args is not JsonObject o || o.Count != keys.Length || keys.Any(k => !o.ContainsKey(k)))
@@ -106,7 +122,7 @@ public sealed partial class CollaborationStore
         var success = true;
         if (work.Kind == "check")
         {
-            var matching = observed.Where(e => e.Command.Trim() == work.Operation && e.Tool is "command" or "Bash" or "PowerShell").ToArray();
+            var matching = observed.Where(e => CommandMatches(e.Command, work.Operation) && e.Tool is "command" or "Bash" or "PowerShell").ToArray();
             if (matching.Length == 0) throw new CollaborationValidationException("A check requires captured native command evidence matching its exact operation.");
             success = matching.All(e => e.ExitCode == 0 && e.IsError != true);
             var current = new CollaborationSnapshot("", snapshot.Fingerprint, snapshot.Complete, "", "", DateTimeOffset.UtcNow);
