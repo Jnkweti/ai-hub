@@ -317,13 +317,35 @@ command, which is the full PowerShell invocation rather than the Python command 
 answer carries useful partial evidence (the CLI output) but the pause happens before the asker can act on it, so the
 decision waits for the user's next message, where the answer arrives as a stream event.
 
-### Refinements suggested for Phase 2
+## Sixth run: the full cycle, unprescribed (0.28.4 build)
 
-1. Preparation: cancel it when the first speaker's turn outlives the two-minute cap, or extend the cap to the turn
-   inactivity budget; as run, preparation burned tokens and was discarded.
-2. Reaction turns: tighten the repetition check so a reply whose numbers and claims already appear in the stream is
-   recorded as a pass, or tell the follow-up prompt that restating a peer's trace is a pass.
-3. Pick a second pilot task where the correct answer is genuinely contestable (two defensible fixes, or a planted
-   wrong hypothesis in the task's own notes) so the question and resolution path is exercised unprompted.
-4. Record execution versus hand-trace in the rubric: the only factual error in three arms was a hand trace in a
-   read-only session; a peer with a shell, or the review workflow's `claim_work` check, is the designed remedy.
+The same addressed-Claude prompt as the fifth run, on 0.28.4. 3 min 14 s, three entries, phase ended normally.
+Claude Code (64 s) established the cause from source, claimed and completed a `discovery` work record, and sent Codex
+a `question` to run the exact CLI command. Codex (1 min 58 s) ran it once — a single captured command, accepted by the
+claim on the first attempt now that the wrapper matches — and answered with `status assignment_complete`,
+`reply_to` the question, quoting the captured output (evidence `8d857d89…`, exit 0), which matched Claude's
+prediction line for line; it did not attempt pytest this time, so nothing blocked. The host scheduled Claude's
+resolution turn (12 s): "Codex's run confirms the trace exactly … My position is unchanged", `reply_to` the answer,
+and the phase ended with the `resolution` assignment completed and the question `Answered`. Usage: Codex 602k input
+(567k cached) / 3.2k output; Claude 295k input (271k cached) / 5.7k output, $0.83.
+
+This is the handoff's target interaction, end to end, with real providers and no prescribed tool calls: a contribution,
+a focused question to the peer, an evidence-backed answer, and a recorded decision on it — traceable from the ledger
+alone (question → answer → resolution, each linked by ID). It is one run; it shows the mechanism works, not that it
+improves outcomes.
+
+### Refinements suggested for Phase 2 (status as of October 3, 2026)
+
+1. Preparation cap — **shipped in 0.28.1**: preparation runs while the first speaker works, with a 45 s grace at the
+   peer's turn. In pilots 3 and 4 the preparation completed and was used.
+2. Reaction turns — **partly addressed in 0.28.1** (the follow-up prompt names paraphrased restatement as a pass).
+   Pilot 3's reaction was a pass; pilot 4's was a real verification. An endorsement without new content (pilot 2)
+   still slips through; the lexical repeat check cannot see paraphrase.
+3. Contestable task — **attempted twice** (planted wrong notes; declared devil's-advocate assignment). Neither
+   produced a wrong first answer, so the challenge path has not fired on its own; see the fourth pilot's reading.
+4. Execution versus hand trace — **shipped in 0.28.3**: a read-only Claude session routes a needed command to its
+   teammate as a `question`; the fifth run showed it working, and exposed the claim-matching friction fixed in 0.28.4
+   and the read-only sandbox's inability to run pytest (temp files), which remains a provider limitation.
+5. New: a `blocked` answer to a question pauses the run before the asker can act on the partial evidence it carries.
+   The pause is right (the user's decision is needed); the asker sees the answer as a stream event in the next phase.
+   Left as designed, noted here.

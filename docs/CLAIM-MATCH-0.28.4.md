@@ -20,5 +20,7 @@ not the command the agent typed and claimed. Codex eventually re-claimed with th
   2026 after closing the idle 0.28.3 app (`artifacts\claim-match-0284-install-result.json`: 612 files verified, hashes
   match, data unchanged, backups `before-collaboration-20261003-170904.zip` and
   `before-collaboration-data-20261003-170904.zip`); reopened as 0.28.4.0 with 5 rooms and 2 tasks.
-- Live: not separately exercised; the next routed run will show whether Codex completes its check claims on the first
-  attempt.
+- Live (`artifacts\pilot-028\routed6`): the routed task rerun on this build. Codex ran the requested command once (one
+  captured command against seven in the 0.28.3 run), its claim was accepted, and its turn took 1 min 58 s instead of
+  4 min 31 s. The run then completed the whole question → answer → resolution cycle unprescribed; see the
+  [pilot document](PILOT-BASELINE-0.28.0.md).
