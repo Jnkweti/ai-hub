@@ -19,10 +19,11 @@ internal sealed class ConversationPreparation : IAsyncDisposable
     internal Task<PreparedContribution?> Completion { get; }
     internal Agent Agent { get; }
     internal ConversationPreparation(CollaborationStore store, TaskClaim claim, Agent agent, CommonContext common,
-        string prompt, Func<Agent, IAgentClient> factory, Action<AgentEvent> emit, CancellationToken token)
+        string prompt, Func<Agent, IAgentClient> factory, Action<AgentEvent> emit, CancellationToken token, TimeSpan? limit = null)
     {
         Agent = agent; lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        lifetime.CancelAfter(TimeSpan.FromMinutes(2));
+        // A hard cap only; the coordinator ends an unfinished preparation shortly after the peer's turn arrives.
+        lifetime.CancelAfter(limit ?? TimeSpan.FromMinutes(10));
         var id = Guid.NewGuid().ToString("N");
         store.Assign(claim, new(id, agent, "preparation", prompt, [], new([], []),
             "Prepare tentative notes; revise after the first response before speaking.", claim.Generation, "running", DateTimeOffset.UtcNow));

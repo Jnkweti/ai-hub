@@ -27,6 +27,8 @@ if (args.Length == 2 && args[0] == "--challenge-live")
 { await ChallengeResolutionLiveCheck.Run(args[1]); return; }
 if (args.Length == 5 && args[0] == "--pilot-live")
 { await PilotLiveCheck.Run(args[1], args[2], args[3], args[4]); return; }
+if (args.Length == 4 && args[0] == "--preparation-live")
+{ await PreparationLiveCheck.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 2 && args[0] == "--shared-work-live")
 { await SharedWorkLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--claude-work-live")

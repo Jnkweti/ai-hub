@@ -60,6 +60,27 @@ internal static class ConcurrentWorkTests
             Check(joined && f.Memory.Get(f.TaskId)!.State == WorkState.Stopped, "Preparation survived task release");
             Check(f.Store.Read(f.TaskId).Assignments.All(a => a.State != "running"), "Abandoned preparation remained running");
         });
+        foreach (var finishes in new[] { true, false })
+        await test("notes still being written when the peer's turn arrives get a grace period: " + (finishes ? "used when they finish in time" : "abandoned as interrupted otherwise"), async () =>
+        {
+            using var f = new Fixture(); var leadDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var prompts = new Dictionary<int, string>(); var notices = new List<string>();
+            await using var hub = f.Hub((_, host, call, prompt, _) =>
+            {
+                lock (prompts) prompts[call] = prompt;
+                Tool(host, "submit_message", Message()); if (call == 1) leadDone.SetResult();
+                return Task.FromResult(call == 1 ? "Lead answer" : "Peer answer");
+            });
+            hub.PreparationGrace = TimeSpan.FromMilliseconds(finishes ? 10000 : 300);
+            // The notes are not ready when the lead finishes: they arrive 200 ms later, or never.
+            hub.PreparationFactory = a => new Prep(a, async (_, ct) => { await leadDone.Task.WaitAsync(ct); await Task.Delay(finishes ? 200 : Timeout.Infinite, ct); return "late tentative notes"; });
+            hub.Event += e => { if (e.Kind == EventKind.Status) lock (notices) notices.Add(e.Text); };
+            await hub.SubmitAsync("Discuss this design", "Both"); await f.Finished();
+            Check(f.Calls == 2 && f.Memory.Get(f.TaskId)!.State == WorkState.Ready, f.Memory.Get(f.TaskId)!.Reason);
+            var prep = f.Store.Read(f.TaskId).Assignments.Single(a => a.Role == "preparation");
+            if (finishes) Check(prompts[2].Contains("late tentative notes") && prep.State == "completed", "Notes that finished within the grace were not used: " + prep.State);
+            else Check(!prompts[2].Contains("TENTATIVE NOTES") && prep.State == "interrupted" && notices.Any(n => n.Contains("did not finish within")), "Unfinished notes were not abandoned: " + prep.State);
+        });
         await test("preparation failure falls back to normal peer context", async () =>
         {
             using var f = new Fixture(); await using var hub = f.Hub((_, host, _, _, _) => { Tool(host, "submit_message", Message()); return Task.FromResult("Answer"); });

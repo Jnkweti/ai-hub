@@ -84,6 +84,13 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     /// last turn, until the host has fed the session this many input bytes; the next phase then starts it fresh with the full core.
     /// </summary>
     public long SessionCarryLimitBytes { get; set; } = 1_000_000;
+    /// <summary>
+    /// Preparation runs while the first speaker works, up to <see cref="PreparationLimit"/>. When the peer's turn arrives and its
+    /// notes are not ready, the turn waits this long for them and then continues without them (0.28.1: a fixed two-minute
+    /// cap used to discard notes that had free time to finish while a long first turn was still running).
+    /// </summary>
+    public TimeSpan PreparationGrace { get; set; } = TimeSpan.FromSeconds(45);
+    public TimeSpan PreparationLimit { get; set; } = TimeSpan.FromMinutes(10);
     private volatile SpeakingTurn? speaking;
     private Agent? interruptedSpeaker;
     private volatile LiveDispatch? currentDispatch;
@@ -385,7 +392,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                         "Avoid repeating the first answer, ceremonial handoff language, and treating ordinary discussion as a code-review assignment. " +
                         "Use an explicit peer request only when you have a concrete question or further authorized work for them. " +
                         "Your assignment_complete status ends your contribution, not the other participant's initial turn. " +
-                        (followUp ? "FOLLOW-UP CONTRIBUTION CHECK: You have already contributed. This is a reaction opportunity: new events arrived since your last turn. Speak only if they create a specific useful addition, correction, question or request. Otherwise pass silently with no_further_contribution. Do not repeat your earlier points or manufacture more work. Omit reply_to. " :
+                        (followUp ? "FOLLOW-UP CONTRIBUTION CHECK: You have already contributed. This is a reaction opportunity: new events arrived since your last turn. Speak only if they create a specific useful addition, correction, question or request. Otherwise pass silently with no_further_contribution. Do not repeat your earlier points or manufacture more work. Restating a peer's trace, numbers or conclusion in your own words is a repeat, not an addition: pass instead. Omit reply_to. " :
                         resolution is not null ? "" :
                         previous is not null && dispatch.Incoming is null ? "This is your initial contribution to the user's message: your own opportunity after your teammate's contribution, not a delegated peer request. Contribute or pass; omit reply_to. " +
                             "If you disagree with a specific claim in the preceding response, or it rests on an assumption you can name, submit a question to your teammate (recipient, requested_action naming the claim and what evidence would settle it) instead of a second standalone answer; the Hub returns the answer to you for a recorded decision. " : "") +
@@ -504,7 +511,7 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 if (participants.Length == 2 && PreparationFactory is not null && CollaborationScheduler.NeedsOptionalPeer(prompt) && addressed is null &&
                     !unavailable.Contains(ConversationTurns.Other(next)) && !carried.Contains(ConversationTurns.Other(next)))
                     preparation = new(CollaborationStore, claim, ConversationTurns.Other(next), initialCommon, promptReference, PreparationFactory,
-                        item => { if (Current()) Event?.Invoke(item); }, token);
+                        item => { if (Current()) Event?.Invoke(item); }, token, PreparationLimit);
                 Agent? previousAgent = null; var visible = ""; var turns = 0;
                 var contributed = new HashSet<Agent>();
                 var contextReady = false;
@@ -559,8 +566,10 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                     prepared = null;
                     if (preparation?.Agent == next)
                     {
-                        prepared = await preparation.Completion;
-                        await EndPreparation();
+                        var completion = preparation.Completion;
+                        if (completion.IsCompleted || await Task.WhenAny(completion, Task.Delay(PreparationGrace, token)) == completion) prepared = await completion;
+                        else Event?.Invoke(new(next, EventKind.Status, $"Preparation did not finish within {Describe(PreparationGrace)} of the turn; continuing with current context"));
+                        await EndPreparation(); // Cancels notes still being written; they are recorded as interrupted.
                         token.ThrowIfCancellationRequested();
                     }
                     if (!TaskMemory.Own(claim, next)) throw new OperationCanceledException(token);
