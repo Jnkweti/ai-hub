@@ -89,10 +89,11 @@ public sealed class CodexClient(AgentOptions options, string? sessionId = null) 
         catch (IOException ex) when (attemptedDefault && !defaultRejected && IsUnknownModel(ex.Message))
         {
             // The service rejected AI Hub's default model at turn time (for example a ChatGPT-account login without access yet).
-            // Reconnect the same thread without a model and ask once more.
+            // Start a fresh thread without a model and ask once more: a resumed thread keeps the model it was started with
+            // (Codex CLI 0.159), so resuming would only repeat the rejection. The failed thread held nothing but this turn.
             RejectDefault();
             if (wire is not null) await wire.DisposeAsync();
-            wire = null;
+            wire = null; SessionId = null;
             return await TurnAsync(prompt, token);
         }
     }

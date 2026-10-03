@@ -98,15 +98,24 @@ public sealed partial class CollaborationStore
     internal int CachedDocuments { get { lock (gate) return documents.Count; } }
     public CollaborationDocument Read(string taskId) => memory.WithTask(taskId, task => { lock (gate) return Copy(Load(task)); });
     public CollaborationDispatch OpenDispatch(TaskClaim claim, Agent agent, IReadOnlyCollection<Agent> participants,
-        string? incomingMessageId, CancellationToken token) => memory.WithOwner(claim, agent, task =>
+        string? incomingMessageId, CancellationToken token, string? answerMessageId = null) => memory.WithOwner(claim, agent, task =>
     {
         lock (gate)
         {
             token.ThrowIfCancellationRequested();
             if (active.ContainsKey(task.Id)) throw new CollaborationValidationException("A collaboration dispatch still owns this task.");
             if (!participants.Contains(agent) || participants.Any(p => !Enum.IsDefined(p))) throw new CollaborationValidationException("Invalid task participants.");
-            var dispatch = new CollaborationDispatch(this, claim, agent, participants.ToArray(), incomingMessageId, token);
+            var dispatch = new CollaborationDispatch(this, claim, agent, participants.ToArray(), incomingMessageId, token, answerMessageId);
             var document = Copy(Load(task));
+            if (answerMessageId is not null)
+            {
+                // A resolution turn: the answer must be a peer's successful reply, in this run, to a question this agent asked.
+                var answer = document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == answerMessageId);
+                var question = answer is null ? null : document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == answer.Message.Content.ReplyTo);
+                if (answer is null || !answer.SenderSucceeded || answer.Message.Envelope.Generation != claim.Generation || answer.Message.Envelope.Sender == agent ||
+                    question is null || question.Message.Content.Type != "question" || question.Message.Envelope.Sender != agent || question.Message.State != DeliveryState.Answered)
+                    throw new CollaborationValidationException("The answer to resolve is not a peer's reply to this agent's question in this run.");
+            }
             for (var i = 0; i < document.Entries.Count; i++)
                 if (document.Entries[i].Message.Envelope.Generation != claim.Generation && Unsettled(document.Entries[i]))
                     document.Entries[i] = ChangeState(document.Entries[i], DeliveryState.Interrupted, "An older run ended; this message was not replayed.");
@@ -184,7 +193,7 @@ public sealed partial class CollaborationStore
                     sender = agent.ToString(), dispatch_id = id, generation = dispatch.Claim.Generation,
                     participants = dispatch.Participants.Select(p => p.ToString()), workspace = task.Workspace,
                     allow_edits = task.AllowEdits, briefing = memory.Briefing(task.Id), snapshot_status = "host_fingerprints",
-                    persistent = true, incoming_message = Incoming(original, dispatch), shared_context_sections = original.ContextSections.Count,
+                    persistent = true, incoming_message = Incoming(original, dispatch), answered_question = AnsweredQuestion(original, dispatch), shared_context_sections = original.ContextSections.Count,
                     context_revision = original.ContextRevision, assignments = original.Assignments.TakeLast(8),
                     history_last_sequence = original.LastSequence, evidence_status = "host_captured_provider_events", findings = original.Findings.TakeLast(32), findings_total = original.Findings.Count
                 }, CollaborationContract.JsonOptions)!;
@@ -378,6 +387,15 @@ public sealed partial class CollaborationStore
     internal CollaborationMessage? Incoming(CollaborationDispatch dispatch) => Use(dispatch, (_, document) => Incoming(Copy(document), dispatch));
     private static CollaborationMessage? Incoming(CollaborationDocument document, CollaborationDispatch dispatch) =>
         document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == dispatch.IncomingMessageId)?.Message;
+    // For a resolution turn: the agent's own question and the peer's answer it is deciding about.
+    private static object? AnsweredQuestion(CollaborationDocument document, CollaborationDispatch dispatch)
+    {
+        if (dispatch.AnswerMessageId is null) return null;
+        var answer = document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == dispatch.AnswerMessageId)?.Message;
+        var question = answer is null ? null : document.Entries.FirstOrDefault(e => e.Message.Envelope.MessageId == answer.Content.ReplyTo)?.Message;
+        return answer is null || question is null ? null
+            : new { question, answer, meaning = "Your question and the peer's answer to it, both agent claims. Decide what the answer changes and set reply_to to the answer's message_id." };
+    }
     internal void Abort(CollaborationDispatch dispatch, string reason)
     {
         memory.WithClaim(dispatch.Claim, task =>
@@ -557,8 +575,8 @@ public sealed partial class CollaborationStore
     }
     private static void ValidateReferences(CollaborationDocument document, CollaborationDispatch dispatch, CollaborationContent content)
     {
-        if (content.ReplyTo is not null && content.ReplyTo != dispatch.IncomingMessageId)
-            throw new CollaborationValidationException("reply_to must identify this dispatch's incoming message, not another task or older request.");
+        if (content.ReplyTo is not null && content.ReplyTo != dispatch.IncomingMessageId && content.ReplyTo != dispatch.AnswerMessageId)
+            throw new CollaborationValidationException("reply_to must identify this dispatch's incoming message or the answer it resolves, not another task or older request.");
         var incoming = Incoming(document, dispatch);
         if (content.Type == "review_result" && incoming?.Content.Type != "review_request")
             throw new CollaborationValidationException("Review result must answer the current review request.");
@@ -604,10 +622,12 @@ public sealed class CollaborationDispatch : ICollaborationTools
     internal Agent Agent { get; }
     internal Agent[] Participants { get; }
     internal string? IncomingMessageId { get; }
+    /// <summary>The peer's answer to a question this agent asked earlier in the phase; the turn decides what it changes and its terminal may reply_to it.</summary>
+    internal string? AnswerMessageId { get; }
     internal CancellationToken Token { get; }
     public string Id { get; } = Guid.NewGuid().ToString("N");
-    internal CollaborationDispatch(CollaborationStore store, TaskClaim claim, Agent agent, Agent[] participants, string? incoming, CancellationToken token)
-    { this.store = store; Claim = claim; Agent = agent; Participants = participants; IncomingMessageId = incoming; Token = token; }
+    internal CollaborationDispatch(CollaborationStore store, TaskClaim claim, Agent agent, Agent[] participants, string? incoming, CancellationToken token, string? answer = null)
+    { this.store = store; Claim = claim; Agent = agent; Participants = participants; IncomingMessageId = incoming; Token = token; AnswerMessageId = answer; }
     public string Instructions => """
         STRUCTURED AI HUB COLLABORATION: use the ai_hub tools to communicate task state.
         The host supplies a versioned COMMON TASK CONTEXT automatically. Active user instructions and pinned corrections
@@ -656,6 +676,9 @@ public sealed class CollaborationDispatch : ICollaborationTools
         reply_to and findings (an empty list is valid if there are no findings). For status include status, not recipient.
         Every terminal answer to an incoming message must set reply_to to that incoming message's ID.
         Answer a review_request with review_result, or status blocked. A receipt means saved, not delivered or verified.
+        A question you ask comes back to you once answered: that resolution turn supplies the answer (get_task_context
+        answered_question), and your terminal message says whether you revise or retain your position, with reply_to set
+        to the answer's ID, or passes with no_further_contribution to accept it. Do not pass quietly over a disagreement.
         Use get_evidence with offset:0, limit:4 to discover host-captured command records and snapshot freshness.
         Cite only returned evidence IDs. Missing exit status is unknown; prose assertions are agent reports.
         Review results must match the incoming review scope exactly and cannot reuse a changed/incomplete snapshot.

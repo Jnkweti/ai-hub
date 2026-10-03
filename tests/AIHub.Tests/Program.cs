@@ -23,6 +23,8 @@ if (args.Length == 2 && args[0] == "--shared-context-live")
 { await SharedContextLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--live-stream-live")
 { await LiveStreamLiveCheck.Run(args[1]); return; }
+if (args.Length == 2 && args[0] == "--challenge-live")
+{ await ChallengeResolutionLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--shared-work-live")
 { await SharedWorkLiveCheck.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--claude-work-live")
@@ -417,6 +419,7 @@ await CollaborationTests.Run(Test);
 await CollaborationRoutingTests.Run(Test);
 await FollowUpAuditTests.Run(Test);
 await LiveStreamTests.Run(Test);
+await ChallengeResolutionTests.Run(Test);
 await HardeningTests.Run(Test);
 await WorktreeTests.Run(Test);
 await SharedContextTests.Run(Test);
@@ -521,7 +524,8 @@ static class FakeWire
                     var requested = m["params"]?["model"] is null ? "(none)" : m["params"].Str("model");
                     if (Environment.GetEnvironmentVariable("AIHUB_FAKE_REJECT_MODEL") == "1" && requested == CodexClient.DefaultModel)
                     { Emit(new { id, error = new { code = -32602, message = "unknown model: " + requested } }); continue; }
-                    startedModel = requested;
+                    // Like the CLI, a resumed thread keeps the model it was started with unless the resume names one.
+                    startedModel = method == "thread/resume" && m["params"]?["model"] is null && startedModel is { Length: > 0 } ? startedModel : requested;
                     Emit(new { id, result = new { thread = new { id = "fake-codex" } } });
                 }
                 else if (method == "turn/start")
