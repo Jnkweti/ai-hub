@@ -28,6 +28,9 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
+Version **0.28.5** records the first harness evaluation and the roadmap status after it. Versions **0.28.0** to **0.28.4** close the challenge loop: a question to a peer comes back to the asker as a resolution turn carrying the answer, and the asker's decision is recorded and linked ([question resolution 0.28.0](docs/CHALLENGE-RESOLUTION-0.28.0.md)); preparation gets a grace period instead of a fixed cap ([0.28.1](docs/PREPARATION-GRACE-0.28.1.md)); a solo phase is told it has no teammate ([0.28.2](docs/SOLO-PHASE-0.28.2.md)); a read-only Claude Code session routes a needed command to its teammate ([0.28.3](docs/EXECUTION-ROUTING-0.28.3.md)); and check claims match the command inside the provider's shell wrapper ([0.28.4](docs/CLAIM-MATCH-0.28.4.md)). The pilot runs behind these are in [the pilot baseline](docs/PILOT-BASELINE-0.28.0.md). 0.28.0 also fixed the Codex default-model fallback, which resumed the rejected model on Codex CLI 0.159.
+
+Version **0.27.0** accepts a project status report that follows a progress note in the same reply, instead of discarding the review. See [status parse 0.27.0](docs/STATUS-PARSE-0.27.0.md).
 Version **0.26.0** answers a message that names one agent with that agent alone, unless its reply asks the other for something, and resumes each agent's native session across the phases of a task so a follow-up costs a short delta instead of a full re-read. See [session carry 0.26.0](docs/SESSION-CARRY-0.26.0.md).
 
 Version **0.25.0** keeps workspace fingerprints on disk between runs, so the first message after a launch is as fast as the rest, and stops taking a snapshot for status-only messages such as a greeting's reply. See [fingerprint cache 0.25.0](docs/FINGERPRINT-CACHE-0.25.0.md).

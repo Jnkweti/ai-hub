@@ -1,6 +1,6 @@
 {
   "name": "ai-hub-collaboration",
-  "version": "0.28.4",
+  "version": "0.28.5",
   "description": "Focused implementation, review (including adversarial review), evidence, and task resumption through AI Hub.",
   "author": { "name": "AI Hub" }
 }

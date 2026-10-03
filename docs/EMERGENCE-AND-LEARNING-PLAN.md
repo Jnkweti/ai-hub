@@ -23,33 +23,33 @@ The existing [structured collaboration plan](COLLABORATION-IMPLEMENTATION-PLAN.m
 
 ## Phase 0 Prepare a lightweight baseline alongside harness development
 
-- [ ] Inventory current behavior and regression checks during the harness design. Check the current checkout and coordinate around concurrent edits.
-- [ ] Pick one representative pilot task and record a small starting-point comparison for current AI Hub and the solo providers where practical. Use the same initial task state and note model, settings, context, and resource use.
-- [ ] Define what the harness must show: useful discoveries, evidence-backed challenges, revisions, correctness, unresolved questions, developer intervention, and task completion.
-- [ ] Keep baseline setup small enough that it does not delay the harness. Expand representative tasks, repeats, order controls, and comparable-resource analysis after the first working loop.
+- [x] (0.28.0, October 3, 2026) Inventory current behavior and regression checks during the harness design. Check the current checkout and coordinate around concurrent edits.
+- [x] (PILOT-BASELINE-0.28.0.md) Pick one representative pilot task and record a small starting-point comparison for current AI Hub and the solo providers where practical. Use the same initial task state and note model, settings, context, and resource use.
+- [x] (PILOT-BASELINE-0.28.0.md, pre-registered rubric) Define what the harness must show: useful discoveries, evidence-backed challenges, revisions, correctness, unresolved questions, developer intervention, and task completion.
+- [x] Keep baseline setup small enough that it does not delay the harness. Expand representative tasks, repeats, order controls, and comparable-resource analysis after the first working loop.
 
 Acceptance: A pilot task and starting-point notes are ready while harness work proceeds. This early comparison is directional evidence, not proof that the new harness improves results.
 
 ## Phase 1 Build the minimal collaboration harness
 
-- [ ] Map the current coordinator, scheduler, task ledger, provider clients, and collaboration message path. Extend existing capabilities where they fit; avoid building a second task store or parallel provider adapters.
-- [ ] Establish a small harness core that owns the task objective and current instructions, agent turn scheduling, shared collaboration state, contribution exchange, stop conditions, and user control.
-- [ ] Define the policy boundary: given task context, selected agents, and constraints, choose the next collaboration action and its purpose. Keep permissions and tool authorization enforced by the host.
-- [ ] Keep Codex and Claude behind the existing provider-client interface initially. The harness should coordinate their work without requiring a custom model tool runtime.
-- [ ] Complete one vertical slice: receive a developer task, collect distinct agent contributions, route a focused peer question or challenge, deliver the peer's response back for revision, then return a result with unresolved issues visible.
-- [ ] Persist attribution, message links, supplied context revision, evidence references, and run outcome so the developer can follow how the solution changed.
-- [ ] Preserve existing interruption, approval, provider failure, stale-dispatch, bounded-round, evidence, and edit-ownership safeguards throughout the new loop.
-- [ ] Keep the existing coordination policy as a selectable fallback during the transition. Experimental coordination must be easy to disable without losing history.
+- [x] (CHALLENGE-RESOLUTION-0.28.0.md) Map the current coordinator, scheduler, task ledger, provider clients, and collaboration message path. Extend existing capabilities where they fit; avoid building a second task store or parallel provider adapters.
+- [x] (the existing HubCoordinator turn loop, extended rather than replaced) Establish a small harness core that owns the task objective and current instructions, agent turn scheduling, shared collaboration state, contribution exchange, stop conditions, and user control.
+- [x] (Opportunity slots in HubCoordinator: plain reaction, delivered request, resolution) Define the policy boundary: given task context, selected agents, and constraints, choose the next collaboration action and its purpose. Keep permissions and tool authorization enforced by the host.
+- [x] Keep Codex and Claude behind the existing provider-client interface initially. The harness should coordinate their work without requiring a custom model tool runtime.
+- [x] (0.28.0; live and unprescribed in the sixth pilot run on 0.28.4) Complete one vertical slice: receive a developer task, collect distinct agent contributions, route a focused peer question or challenge, deliver the peer's response back for revision, then return a result with unresolved issues visible.
+- [x] (esolution assignment with question and answer IDs, eply_to on the decision, stream events, input manifests) Persist attribution, message links, supplied context revision, evidence references, and run outcome so the developer can follow how the solution changed.
+- [x] (259 regression tests) Preserve existing interruption, approval, provider failure, stale-dispatch, bounded-round, evidence, and edit-ownership safeguards throughout the new loop.
+- [x] (automatic collaboration and voluntary follow-ups remain settings; a resolution turn is bounded by the same round cap) Keep the existing coordination policy as a selectable fallback during the transition. Experimental coordination must be easy to disable without losing history.
 
 Acceptance: A real task can complete the full collaboration loop through AI Hub; the developer can redirect or stop it; provider access stays within host permissions; and the saved record identifies each contribution, challenge, revision, and outcome.
 
 ## Phase 2 Exercise and refine the harness
 
-- [ ] Run the pilot task through the new harness and compare it with the Phase 0 starting point. Record quality, useful challenges and revisions, developer effort, time, and provider usage.
-- [ ] Add repeatable checks for message attribution, evidence links, context delivery, revision history, cancellation, provider errors, round limits, and preservation of current permissions.
-- [ ] Run focused live verification with both providers. Identify differences between recorded messages and content actually supplied in provider inputs.
-- [ ] Refine the interaction when it repeats work, manufactures disagreement, hides unresolved issues, or continues after useful progress ends.
-- [ ] Expand the evaluation to independent solo runs and independent answers followed by synthesis. Compare under practical settings and, where feasible, similar resource limits.
+- [x] (three tasks, six arms, two routed runs in PILOT-BASELINE-0.28.0.md) Run the pilot task through the new harness and compare it with the Phase 0 starting point. Record quality, useful challenges and revisions, developer effort, time, and provider usage.
+- [x] (ChallengeResolutionTests, ConcurrentWorkTests grace and wrapper cases, routing cases) Add repeatable checks for message attribution, evidence links, context delivery, revision history, cancellation, provider errors, round limits, and preservation of current permissions.
+- [x] (--challenge-live, --pilot-live, --preparation-live) Run focused live verification with both providers. Identify differences between recorded messages and content actually supplied in provider inputs.
+- [x] (0.28.1 preparation grace and restatement-is-a-pass, 0.28.2 solo note, 0.28.3 execution routing, 0.28.4 claim matching; endorsement turns remain a known gap) Refine the interaction when it repeats work, manufactures disagreement, hides unresolved issues, or continues after useful progress ends.
+- [x] (solo Codex and solo Claude arms for every pilot task; independent-answers-then-synthesis not yet run) Expand the evaluation to independent solo runs and independent answers followed by synthesis. Compare under practical settings and, where feasible, similar resource limits.
 - [ ] Select contributions to fit the task. Either model may investigate, implement, challenge, or synthesize; avoid permanent model roles.
 - [ ] Keep independent assessment, optional behavioral profiles, and other experimental strategies as selectable policies. Describe profiles in observable terms; do not assume MBTI compatibility predicts performance.
 - [ ] Retain the option for one agent to pass when the peer adds nothing useful. Show unresolved disagreements and let the developer redirect or settle a decision.
