@@ -71,7 +71,8 @@ function Agent-Ready([string]$agent) {
  return (Control ($agent + 'Status')).Current.Name -in @('Ready','Standby') -and @($tasks | Where-Object State -eq 1).Count -eq 0
 }
 function Both-Ready { return (Agent-Ready 'Codex') -and (Agent-Ready 'Claude') }
-function Read-Room { return @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json) | Where-Object { $_.Id -eq 'input' } }
+function Read-Transcript([string]$dir,[string]$roomId) { $f = Join-Path $dir ('room-' + $roomId + '.json'); if (Test-Path -LiteralPath $f) { return @(Get-Content -Raw -Encoding UTF8 -LiteralPath $f | ConvertFrom-Json) }; return @() } # transcripts are per-room files since 0.23.0
+function Read-Room { $room = @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json) | Where-Object { $_.Id -eq 'input' }; $room | Add-Member -NotePropertyName Messages -NotePropertyValue (Read-Transcript $hubData 'input') -Force; return $room }
 function No-Dialogs {
  $type = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Window)
  if ($script:hubWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants,$type).Count -ne 0) { throw 'Agent input opened a popup window' }
@@ -154,7 +155,7 @@ try {
  Keys (Control 'SecretAnswer') '{ENTER}'
  Wait-For { Agent-Ready 'Codex' } 'Private answer did not resume agent'
  Start-Sleep -Seconds 4
- if ((Get-Content -Raw -LiteralPath (Join-Path $hubData 'rooms.json')).Contains('private-fixture-value')) { throw 'Private answer leaked into saved history' }
+ if (((Get-Content -Raw -LiteralPath (Join-Path $hubData 'rooms.json')) + (Get-Content -Raw -LiteralPath (Join-Path $hubData 'room-input.json'))).Contains('private-fixture-value')) { throw 'Private answer leaked into saved history' }
  Write-Output 'PASS private answers are masked and omitted from saved history'
 
  Target 'Both agents'; Send 'Codex, input-fixture-delayed-open'

@@ -9,7 +9,9 @@ foreach($hubFile in Get-ChildItem -LiteralPath $hubSource -Filter '*.json' -File
  $hubHashes[$hubFile.FullName]=(Get-FileHash -LiteralPath $hubFile.FullName).Hash
  Copy-Item -LiteralPath $hubFile.FullName -Destination $hubClone
 }
+function Transcript-Count([string]$dir,$room) { $f = Join-Path $dir ('room-' + $room.Id + '.json'); if (Test-Path -LiteralPath $f) { return @(Get-Content -Raw -LiteralPath $f | ConvertFrom-Json).Count }; return @($room.Messages).Count } # per-room files since 0.23.0; a legacy profile keeps them inline until first load
 $hubRoomsBefore=Get-Content -Raw -LiteralPath (Join-Path $hubClone 'rooms.json') | ConvertFrom-Json
+$hubCountsBefore=@{}; foreach($hubRoom in $hubRoomsBefore) { $hubCountsBefore[$hubRoom.Id]=Transcript-Count $hubClone $hubRoom }
 $hubTaskBefore=Get-Content -Raw -LiteralPath (Join-Path $hubClone 'tasks.json') | ConvertFrom-Json
 $hubPrevious=$env:AIHUB_DATA_DIR
 $hubProcess=$null
@@ -26,7 +28,7 @@ try {
  if (@($hubRoomsBefore).Count -ne @($hubRoomsAfter).Count -or @($hubTaskBefore).Count -ne @($hubTasksAfter).Count) { throw 'Upgrade changed room or task counts' }
  foreach($hubRoom in $hubRoomsBefore) {
   $hubRestored=@($hubRoomsAfter | Where-Object Id -eq $hubRoom.Id)[0]
-  if ($null -eq $hubRestored -or $hubRestored.Draft -ne $hubRoom.Draft -or @($hubRestored.Messages).Count -ne @($hubRoom.Messages).Count) { throw 'Upgrade lost transcript or draft data' }
+  if ($null -eq $hubRestored -or $hubRestored.Draft -ne $hubRoom.Draft -or (Transcript-Count $hubClone $hubRestored) -ne $hubCountsBefore[$hubRoom.Id]) { throw 'Upgrade lost transcript or draft data' }
  }
  if (@($hubTasksAfter | Where-Object State -eq 1).Count -gt 0) { throw 'Upgrade started model work' }
  foreach($hubPath in $hubHashes.Keys) { if ((Get-FileHash -LiteralPath $hubPath).Hash -ne $hubHashes[$hubPath]) { throw 'Production data changed during isolated upgrade check' } }

@@ -60,7 +60,8 @@ try {
  [IO.File]::SetAttributes($hubLog,[IO.FileAttributes]::Normal)
  Close-Hub
  $saved = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json
- if (($saved | Where-Object Id -eq 'audit').Messages[0].Text -cne $hubOriginalText) { throw 'Preview truncation lost the full saved message' }
+ $auditTranscript = @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'room-audit.json') | ConvertFrom-Json) # split out of the legacy rooms.json on first load (0.23.0)
+ if ($auditTranscript[0].Text -cne $hubOriginalText) { throw 'Preview truncation lost the full saved message' }
  if (@($saved).Count -ne 2) { throw 'Damaged room repair discarded a recoverable conversation' }
  Start-Hub
  if ((Control 'RoomTitle').Current.Name -ne 'Recovered audit') { throw 'Reopening recovered data lost selection' }

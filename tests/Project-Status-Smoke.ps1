@@ -38,7 +38,8 @@ function Control([string]$id, $root=$script:hubWindow) {
  if ($null -eq $element) { throw "Missing control: $id" }; return $element
 }
 function Invoke-Control([string]$id, $root=$script:hubWindow) { (Control $id $root).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-function Rooms { return Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json }
+function Read-Transcript([string]$dir,[string]$roomId) { $f = Join-Path $dir ('room-' + $roomId + '.json'); if (Test-Path -LiteralPath $f) { return @(Get-Content -Raw -Encoding UTF8 -LiteralPath $f | ConvertFrom-Json) }; return @() } # transcripts are per-room files since 0.23.0
+function Rooms { foreach ($room in @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json)) { $room | Add-Member -NotePropertyName Messages -NotePropertyValue (Read-Transcript $hubData $room.Id) -Force; $room } }
 function Current-Room { return @(Rooms | Where-Object { $_.Id -eq 'status-room' })[0] }
 function Report-Files { return @(Get-ChildItem -LiteralPath (Join-Path $hubData 'project-status') -Filter report.json -File -Recurse -ErrorAction SilentlyContinue) }
 function Start-Hub {

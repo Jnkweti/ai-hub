@@ -40,6 +40,8 @@ try {
         if (Test-Path -LiteralPath $hubRoomFile) {
             $hubRooms = Get-Content -Raw -Encoding UTF8 -LiteralPath $hubRoomFile | ConvertFrom-Json
             $hubRoom = @($hubRooms)[0]
+            $hubTranscript = Join-Path $hubData ('room-' + $hubRoom.Id + '.json') # per-room file since 0.23.0
+            $hubRoom | Add-Member -NotePropertyName Messages -NotePropertyValue $(if (Test-Path -LiteralPath $hubTranscript) { @(Get-Content -Raw -Encoding UTF8 -LiteralPath $hubTranscript | ConvertFrom-Json) } else { @() }) -Force
             $hubCodexCount = @($hubRoom.Messages | Where-Object { $_.Speaker -eq 'Codex' -and $_.Complete -and $_.Text -match 'AI Hub connected' }).Count
             $hubClaudeCount = @($hubRoom.Messages | Where-Object { $_.Speaker -eq 'Claude' -and $_.Complete -and $_.Text -match 'AI Hub connected' }).Count
             $hubReady = $hubCodexCount -ge 2 -and $hubClaudeCount -ge 2

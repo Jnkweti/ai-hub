@@ -58,8 +58,9 @@ try {
     } until ($hubPaused -or $hubApp.HasExited -or (Get-Date) -gt $hubDeadline)
     if (-not $hubPaused) { throw 'Enter did not submit and reach the greeting guard.' }
     if ($value.Current.Value -ne '') { throw 'Composer did not clear after Enter.' }
-    $hubRooms = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json
-    $hubMessages = $hubRooms[0].Messages
+    $hubRooms = @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json)
+    $hubTranscript = Join-Path $hubData ('room-' + $hubRooms[0].Id + '.json') # per-room file since 0.23.0
+    $hubMessages = if (Test-Path -LiteralPath $hubTranscript) { @(Get-Content -Raw -Encoding UTF8 -LiteralPath $hubTranscript | ConvertFrom-Json) } else { @() }
     if (@($hubMessages | Where-Object Speaker -eq 'You').Count -ne 1) { throw 'Enter submitted zero or multiple messages.' }
     if (@($hubMessages | Where-Object Speaker -eq 'AI Hub').Count -ne 1) { throw 'No visible explanation of the automatic pause.' }
     $hubLogPath = Join-Path $hubData ('activity-' + $hubRooms[0].Id + '.jsonl')

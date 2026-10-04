@@ -26,3 +26,20 @@ control bounds against the window's; a fully hidden or off-screen window would m
   and the next UI smoke run (when the developer asks for one) is the verification of this build.
 - Installed on October 3, 2026 after stopping the stray package instance and closing the idle 0.32.0 app; the app was
   left closed rather than reopened.
+## Script maintenance (October 3, 2026)
+
+The developer allowed a check run for 0.35.0 and the Tasks-window check still took over the screen: it restored the
+app window by force with `ShowWindow`, which no setting in the app can prevent. Two things were then fixed without
+running anything:
+
+- Eight scripts read message transcripts from `rooms.json`. Since 0.23.0 that file is an index and each
+  transcript is `room-<id>.json`, so those checks could not have passed. They now read the per-room file
+  (`Task-Memory`, `Project-Status`, `Inline-Input`, `Keyboard-Guard`, `Desktop`, `Audit`,
+  `Context-Upgrade`; `Shared-Context` instead states its `-NativeResultDirectory` precondition).
+- `Task-Memory` no longer restores the window. The four checks that type or use shortcuts and therefore must bring
+  the app to the front (`Keyboard-Guard`, `Navigation`, `Inline-Input`, `Mission-Control`) carry a
+  `NEEDS KEYBOARD FOCUS` header and are to be run only with explicit consent for that script.
+
+Quiet checks, safe to run when the developer allows a check run: `Feedback`, `Conversation-Management`,
+`Local-Diagnostics`, and after this repair `Task-Memory`. The repaired scripts have been parsed but not executed;
+their next consented run is their verification.
