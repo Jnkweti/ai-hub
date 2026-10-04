@@ -428,6 +428,7 @@ await FeedbackTests.Run(Test);
 await PreferenceTests.Run(Test);
 await StrategyTests.Run(Test);
 await ShadowStrategyTests.Run(Test);
+await StrategyReportTests.Run(Test);
 await HardeningTests.Run(Test);
 await WorktreeTests.Run(Test);
 await SharedContextTests.Run(Test);

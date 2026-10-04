@@ -60,6 +60,7 @@ public partial class MainWindow
         var allFeedback = Button("AllFeedbackButton", "All feedback"); // Every record you made, across conversations: review, edit, delete, export.
         allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
         var prefs = Button("PreferencesButton", "Preferences"); // Standing preferences supplied to agents in scope (0.30.0).
+        var report = Button("StrategyReportButton", "Strategy report"); // Feedback and shadow decisions per strategy (0.33.0).
         var merge = Button("MergeWorktreesButton", "Merge into project");
         var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
         merge.Click += async (_, _) =>
@@ -84,6 +85,24 @@ public partial class MainWindow
         };
         rate.Click += (_, _) => { if (list.SelectedItem is TaskRow row) { TaskFeedback(row.Task, window, text => notice.Text = text); Refresh(true); } };
         prefs.Click += (_, _) => { PreferenceList_Click(prefs, new RoutedEventArgs()); Refresh(true); };
+        report.Click += (_, _) =>
+        {
+            var markdown = StrategyReport.Build(feedback.All(), shadowLog.All(), id => taskMemory.Get(id)?.Objective is { } objective ? (objective.Length > 50 ? objective[..50] + "…" : objective).Replace('\n', ' ') : null);
+            var viewer = new Window { Owner = window, Title = "Strategy report", Width = 760, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            var grid = new Grid { Margin = new(18) }; grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var text = new TextBox { Name = "StrategyReportText", Text = markdown, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontFamily = new System.Windows.Media.FontFamily("Consolas") };
+            grid.Children.Add(text);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 12, 0, 0) };
+            var save = new Button { Name = "SaveStrategyReportButton", Content = "Save as Markdown", Padding = new(10, 8, 10, 8), Margin = new(0, 0, 8, 0) }; var done = new Button { Name = "CloseStrategyReportButton", Content = "Close", Padding = new(10, 8, 10, 8) };
+            save.Click += (_, _) =>
+            {
+                var picker = new Microsoft.Win32.SaveFileDialog { Filter = "Markdown|*.md", FileName = "AI-Hub-strategy-report.md" };
+                if (picker.ShowDialog(viewer) == true) { try { File.WriteAllText(picker.FileName, markdown); notice.Text = "Strategy report saved: " + picker.FileName; } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notice.Text = "Save failed: " + ex.Message; } }
+            };
+            done.Click += (_, _) => viewer.Close();
+            row.Children.Add(save); row.Children.Add(done); Grid.SetRow(row, 1); grid.Children.Add(row);
+            viewer.Content = grid; viewer.ShowDialog();
+        };
         packet.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;

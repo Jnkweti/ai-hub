@@ -87,8 +87,8 @@ Start with a small strategy selection experiment. A candidate contextual bandit 
 - [x] (0.32.0: `StrategyAdvisor` policy shadow-v1, deterministic and versioned, recorded per two-agent phase in `strategy-shadow.json` and the stream beside the executed strategy; a setting disables recording) Begin in shadow mode: record the learner's suggestion while the established policy executes. Shadow suggestions do not establish how the unexecuted strategy would have performed.
 - [ ] Test limited exploration on designated evaluation tasks before ordinary tasks. Record available actions, selection probabilities, policy versions, and delayed feedback for valid comparisons.
 - [ ] Learn at the team strategy level first. Retain contribution attribution, but do not assign causal credit to an agent solely because it spoke last or received praise.
-- [ ] Compare the learned policy with fixed strategies, current collaboration, and preference memory alone on reserved tasks. Report uncertainty and tradeoffs rather than only an aggregate reward.
-- [ ] Version policy updates and support rollback. Let the developer disable learning without disabling collaboration or explicit preferences.
+- [ ] (0.33.0: the Strategy report in the Tasks window gives per-strategy feedback counts, aspects, shadow agreement and disagreements with caveats; the reserved-task comparison itself remains) Compare the learned policy with fixed strategies, current collaboration, and preference memory alone on reserved tasks. Report uncertainty and tradeoffs rather than only an aggregate reward.
+- [ ] (shadow-v1 is versioned in every decision; rollback is moot while nothing executes) Version policy updates and support rollback. Let the developer disable learning without disabling collaboration or explicit preferences.
 
 Acceptance: Measured strategy selection improves the predefined outcomes without sacrificing correctness or useful diversity. If evidence is insufficient, retain the fixed policy and keep collecting interpretable feedback.
 
