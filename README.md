@@ -28,6 +28,8 @@ The default limit is **six automatic rounds** after the initial replies; each ro
 
 Planned work is tracked in [docs/TODO.md](docs/TODO.md). AI Hub is released under the [MIT License](LICENSE).
 
+Version **0.35.0** regroups the Tasks window into three rows: this task, collaboration, and feedback & learning. See [Tasks window 0.35.0](docs/TASKS-WINDOW-0.35.0.md).
+
 Version **0.34.0** adds evaluation tasks: mark a task in the Tasks window and, if you turn the option on in Settings, the strategy policy chooses the collaboration strategy there — trying the alternative a quarter of the time — and records every choice with its probability and policy version. Ordinary tasks are never affected. See [evaluation tasks 0.34.0](docs/EVALUATION-TASKS-0.34.0.md).
 
 Version **0.33.0** adds a Strategy report (Tasks window) that counts your feedback per collaboration strategy and aspect, shows how often the shadow policy agreed with what ran and where it would have chosen differently, and says plainly what the numbers can and cannot support. Version **0.32.1** keeps UI checks from taking your focus. See [strategy report 0.33.0](docs/STRATEGY-REPORT-0.33.0.md).

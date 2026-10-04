@@ -29,8 +29,8 @@ public partial class MainWindow
         if (switching || sending || closing) return;
         var workspace = current.Workspace;
         string? shown = null; // Signature of the task list as last rendered; the per-second tick rebuilds only when it changes.
-        var window = new Window { Owner = this, Title = "Project tasks and notes", Width = 820, Height = 690,
-            MinWidth = 620, MinHeight = 550, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var window = new Window { Owner = this, Title = "Project tasks and notes", Width = 860, Height = 760,
+            MinWidth = 680, MinHeight = 620, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var grid = new Grid { Margin = new(22) };
         foreach (var height in new[] { GridLength.Auto, new GridLength(150), new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
             grid.RowDefinitions.Add(new RowDefinition { Height = height });
@@ -46,24 +46,36 @@ public partial class MainWindow
         var notice = new TextBlock { Text = "Saved replies are agent reports. Check current files before relying on them.", TextWrapping = TextWrapping.Wrap,
             Foreground = Theme.Brush("MutedBrush"), Margin = new(0,9,0,9) };
         Grid.SetRow(notice, 4); grid.Children.Add(notice);
-        var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
-        Grid.SetRow(buttons, 5); grid.Children.Add(buttons);
-        Button Button(string name, string text) { var b = new Button { Name = name, Content = text, Margin = new(6,0,0,6), Padding = new(10,8,10,8) }; buttons.Children.Add(b); return b; }
+        // Three labeled rows (0.35.0): the task itself, its collaboration record, and the feedback-and-learning tools; Close sits apart.
+        var groups = new StackPanel();
+        Grid.SetRow(groups, 5); grid.Children.Add(groups);
+        var rows = new Dictionary<string, WrapPanel>();
+        WrapPanel Row(string label)
+        {
+            if (rows.TryGetValue(label, out var existing)) return existing;
+            var line = new DockPanel { Margin = new(0, 0, 0, 2), LastChildFill = true };
+            var caption = new TextBlock { Text = label, Foreground = Theme.Brush("MutedBrush"), FontSize = 12, Width = 104, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 10, 0, 0) };
+            DockPanel.SetDock(caption, Dock.Left); line.Children.Add(caption);
+            var panel = new WrapPanel(); line.Children.Add(panel);
+            groups.Children.Add(line); rows[label] = panel; return panel;
+        }
+        Row("This task"); Row("Collaboration"); Row("Feedback & learning");
+        Button Button(string name, string text, string group = "This task") { var b = new Button { Name = name, Content = text, Margin = new(0,0,6,6), Padding = new(10,8,10,8) }; Row(group).Children.Add(b); return b; }
         var add = Button("AddTaskNoteButton", "Save note");
-        var stop = Button("StopTaskButton", "Stop task");
-        var open = Button("OpenTaskButton", "Open conversation");
         var resume = Button("SelectTaskButton", "Use this task");
         var create = Button("NewTaskButton", "New task");
-        var evidence = Button("TaskEvidenceButton", "Check evidence");
-        var packet = Button("ReviewPacketButton", "Review packet");
-        var rate = Button("TaskFeedbackButton", "Feedback");
-        var allFeedback = Button("AllFeedbackButton", "All feedback"); // Every record you made, across conversations: review, edit, delete, export.
-        allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
-        var prefs = Button("PreferencesButton", "Preferences"); // Standing preferences supplied to agents in scope (0.30.0).
-        var report = Button("StrategyReportButton", "Strategy report"); // Feedback and shadow decisions per strategy (0.33.0).
+        var open = Button("OpenTaskButton", "Open conversation");
+        var stop = Button("StopTaskButton", "Stop task");
         var evaluation = Button("EvaluationTaskButton", "Mark as evaluation task"); // Designates where the policy may choose the strategy (0.34.0).
-        var merge = Button("MergeWorktreesButton", "Merge into project");
-        var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
+        var evidence = Button("TaskEvidenceButton", "Check evidence", "Collaboration");
+        var packet = Button("ReviewPacketButton", "Review packet", "Collaboration");
+        var merge = Button("MergeWorktreesButton", "Merge into project", "Collaboration");
+        var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees", "Collaboration");
+        var rate = Button("TaskFeedbackButton", "Feedback", "Feedback & learning");
+        var allFeedback = Button("AllFeedbackButton", "All feedback", "Feedback & learning"); // Every record you made, across conversations: review, edit, delete, export.
+        allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
+        var prefs = Button("PreferencesButton", "Preferences", "Feedback & learning"); // Standing preferences supplied to agents in scope (0.30.0).
+        var report = Button("StrategyReportButton", "Strategy report", "Feedback & learning"); // Feedback and shadow decisions per strategy (0.33.0).
         merge.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
@@ -130,7 +142,7 @@ public partial class MainWindow
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notice.Text = "Review packet failed: " + ex.Message; }
             finally { packet.IsEnabled = true; }
         };
-        var context = Button("SharedContextButton", "Shared context");
+        var context = Button("SharedContextButton", "Shared context", "Collaboration");
         context.Click += async (_, _) =>
         {
             if (list.SelectedItem is not TaskRow row) return;
@@ -213,7 +225,8 @@ public partial class MainWindow
             catch (Exception ex) { notice.Text = "Evidence check failed: " + ex.Message; }
             finally { evidence.IsEnabled = true; }
         };
-        var close = Button("CloseTasksButton", "Close"); close.Click += (_, _) => window.Close();
+        var close = new Button { Name = "CloseTasksButton", Content = "Close", Margin = new(0, 6, 0, 0), Padding = new(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Right };
+        groups.Children.Add(close); close.Click += (_, _) => window.Close();
         void ShowDetails()
         {
             var task = (list.SelectedItem as TaskRow)?.Task;
