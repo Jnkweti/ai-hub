@@ -82,6 +82,12 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
     /// line to record in the stream (what the shadow policy would have chosen and why), or null. It never changes what runs.
     /// </summary>
     public Func<string, string, long, CollaborationStrategy, string?>? StrategyShadow { get; set; }
+    /// <summary>
+    /// Evaluation mode (0.34.0): on a task the developer designated for evaluation, called instead of <see cref="StrategyShadow"/>
+    /// with the prompt, task, phase and the configured strategy; returns the strategy to run and a note for the stream. Ordinary
+    /// tasks never reach it.
+    /// </summary>
+    public Func<string, string, long, CollaborationStrategy, (CollaborationStrategy Chosen, string Note)>? StrategyChooser { get; set; }
     private const string SynthesisInstruction = "Both of you answered the user's message independently, without seeing each other; your teammate's answer is the PRECEDING AGENT RESPONSE below. " +
         "Produce the single best answer for the user. Where the two answers differ, say which is right and why, checking the files yourself rather than averaging. Keep what only one of you found if it holds. " +
         "State what remains unverified. This synthesis is the final step of this phase unless you need something specific from your teammate.";
@@ -527,15 +533,22 @@ public sealed class HubCoordinator(Func<Agent, IAgentClient> factory) : IAsyncDi
                 promptReference = CollaborationStore.PromptReference(claim, prompt);
                 // The independent-answers strategy applies to a message both agents answer on equal footing: not one that names an
                 // agent, splits asks, needs no peer, or finds a participant unavailable. Those keep the reaction-round flow.
-                var independent = Strategy == CollaborationStrategy.IndependentThenSynthesis && participants.Length == 2 && addressed is null && asks is null &&
+                // On a designated evaluation task the policy chooses the strategy (0.34.0); everywhere else the configured one runs.
+                var phaseStrategy = Strategy; string? chooserNote = null;
+                if (StrategyChooser is not null && participants.Length == 2 && addressed is null && TaskMemory.Get(claim.TaskId)?.Evaluation == true)
+                {
+                    try { (phaseStrategy, chooserNote) = StrategyChooser(prompt, claim.TaskId, claim.Generation, Strategy); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) { Event?.Invoke(new(next, EventKind.Status, "The strategy policy could not choose; the configured strategy runs: " + ex.Message)); }
+                }
+                var independent = phaseStrategy == CollaborationStrategy.IndependentThenSynthesis && participants.Length == 2 && addressed is null && asks is null &&
                     unavailable.Count == 0 && CollaborationScheduler.NeedsOptionalPeer(prompt);
                 var firstSpeaker = next; var synthesisScheduled = false;
                 CollaborationStore.AppendEvent(claim, "system", "AI Hub", $"Phase started for {target}; {ConversationTurns.Name(next)} speaks first." +
                     (unavailable.Count == 0 ? "" : $" {string.Join(", ", unavailable.Select(ConversationTurns.Name))} is {unavailableReason}.") +
                     (addressed is null ? "" : $" The message addresses {ConversationTurns.Name(addressed.Value)}.") +
                     (carried.Count == 0 ? "" : $" Resumed native sessions: {string.Join(", ", carried.Select(ConversationTurns.Name))}.") +
-                    (participants.Length == 2 && addressed is null ? $" Strategy: {StrategyName(independent ? CollaborationStrategy.IndependentThenSynthesis : CollaborationStrategy.ReactionRounds)}." : ""));
-                if (participants.Length == 2 && addressed is null && StrategyShadow is not null)
+                    (participants.Length == 2 && addressed is null ? $" Strategy: {StrategyName(independent ? CollaborationStrategy.IndependentThenSynthesis : CollaborationStrategy.ReactionRounds)}{(chooserNote is null ? "" : " (evaluation task: " + chooserNote + ")")}." : ""));
+                if (participants.Length == 2 && addressed is null && StrategyShadow is not null && chooserNote is null)
                 {
                     // The shadow policy's choice is recorded beside what actually runs; a failure to record never affects the phase.
                     try

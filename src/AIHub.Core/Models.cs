@@ -83,6 +83,8 @@ public class HubSettings
     public string Strategy { get; set; } = "reaction";
     /// <summary>Record, per two-agent phase, which strategy the shadow policy would have chosen (0.32.0). Never changes what runs.</summary>
     public bool ShadowStrategy { get; set; } = true;
+    /// <summary>On tasks you mark as evaluation tasks, let the strategy policy choose the strategy, exploring the alternative a quarter of the time (0.34.0). Off by default.</summary>
+    public bool EvaluationChooser { get; set; }
     public bool ReduceMotion { get; set; }
     public int MaxAutoRounds { get; set; } = CollaborationGuard.DefaultMaxRounds;
     public string LastRoomId { get; set; } = "";

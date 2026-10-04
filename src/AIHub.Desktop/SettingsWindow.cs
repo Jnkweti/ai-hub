@@ -47,6 +47,8 @@ public sealed class SettingsWindow : Window
         Description("Reaction rounds: the first agent answers, the other adds or passes, and each contribution gives the other a chance to react. Independent answers: both answer the same message without seeing each other, then the first speaker synthesizes the two; the phase ends there. Messages that name one agent keep the usual routing.");
         var shadow = new CheckBox { Name = "ShadowStrategyToggle", Content = "Record shadow strategy suggestions", IsChecked = Settings.ShadowStrategy, Margin = new(0,0,0,0) };
         panel.Children.Add(shadow); Description("For each message to both agents, note which strategy a fixed, versioned policy would have picked and why, beside the one that ran. Suggestions are only recorded, never executed; the Tasks window shows them.");
+        var chooser = new CheckBox { Name = "EvaluationChooserToggle", Content = "Let the policy choose the strategy on evaluation tasks", IsChecked = Settings.EvaluationChooser, Margin = new(0,0,0,0) };
+        panel.Children.Add(chooser); Description("Only on tasks you mark as evaluation tasks in the Tasks window: the policy's choice runs, with the alternative tried a quarter of the time so both strategies are seen under comparable conditions. Every choice, its probability and the policy version are recorded. Ordinary tasks are never affected.");
         var idleRow = new StackPanel { Orientation = Orientation.Horizontal };
         var idle = new TextBox { Name = "TurnInactivityInput", Text = Math.Clamp(Settings.TurnInactivitySeconds, 30, 3600).ToString(), Width = 70, VerticalContentAlignment = VerticalAlignment.Center };
         idleRow.Children.Add(idle); idleRow.Children.Add(new TextBlock { Text = "seconds without provider output before a turn is stopped", VerticalAlignment = VerticalAlignment.Center, Margin = new(12,0,0,0) }); panel.Children.Add(idleRow);
@@ -145,6 +147,7 @@ public sealed class SettingsWindow : Window
             Settings.StatusInspector = inspector.SelectedIndex == 1 ? Agent.Claude : Agent.Codex;
             Settings.Strategy = strategy.SelectedIndex == 1 ? "independent" : "reaction";
             Settings.ShadowStrategy = shadow.IsChecked == true;
+            Settings.EvaluationChooser = chooser.IsChecked == true;
             Settings.CollectLocalDiagnostics = diagnostics.IsChecked == true;
             DialogResult = true;
         };

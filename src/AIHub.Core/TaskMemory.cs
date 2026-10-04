@@ -21,6 +21,8 @@ public sealed class WorkTask
     public string Owner { get; set; } = "";
     public long Generation { get; set; }
     public bool AllowEdits { get; set; }
+    /// <summary>Designated by the developer for strategy evaluation (0.34.0): only here may the policy choose the strategy.</summary>
+    public bool Evaluation { get; set; }
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;
     public List<TaskNote> Notes { get; set; } = [];
     public Dictionary<Agent, string> LatestReplies { get; set; } = [];
@@ -162,6 +164,8 @@ public sealed class TaskMemory
             Mutate(task, () => task.Notes.Add(new() { Text = text.Trim() }));
         }
     }
+    /// <summary>Marks or unmarks a task as an evaluation task; the developer's explicit designation, never inferred.</summary>
+    public void SetEvaluation(string id, bool evaluation) { lock (gate) { var task = Find(id); Mutate(task, () => task.Evaluation = evaluation); } }
     public void DeleteRoom(string roomId, Action? deleteConversation = null)
     {
         lock (gate)

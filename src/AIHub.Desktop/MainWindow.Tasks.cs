@@ -61,6 +61,7 @@ public partial class MainWindow
         allFeedback.Click += (_, _) => FeedbackList_Click(allFeedback, new RoutedEventArgs());
         var prefs = Button("PreferencesButton", "Preferences"); // Standing preferences supplied to agents in scope (0.30.0).
         var report = Button("StrategyReportButton", "Strategy report"); // Feedback and shadow decisions per strategy (0.33.0).
+        var evaluation = Button("EvaluationTaskButton", "Mark as evaluation task"); // Designates where the policy may choose the strategy (0.34.0).
         var merge = Button("MergeWorktreesButton", "Merge into project");
         var dropWorktrees = Button("RemoveWorktreesButton", "Remove worktrees");
         merge.Click += async (_, _) =>
@@ -85,6 +86,17 @@ public partial class MainWindow
         };
         rate.Click += (_, _) => { if (list.SelectedItem is TaskRow row) { TaskFeedback(row.Task, window, text => notice.Text = text); Refresh(true); } };
         prefs.Click += (_, _) => { PreferenceList_Click(prefs, new RoutedEventArgs()); Refresh(true); };
+        evaluation.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not TaskRow row) return;
+            try
+            {
+                taskMemory.SetEvaluation(row.Task.Id, !row.Task.Evaluation);
+                notice.Text = row.Task.Evaluation ? "No longer an evaluation task: the configured strategy runs." : settings.EvaluationChooser ? "Evaluation task: the strategy policy chooses on its next phases, exploring a quarter of the time." : "Evaluation task marked. Turn on the policy chooser in Settings to let it choose here.";
+                Refresh(true);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException) { notice.Text = ex.Message; }
+        };
         report.Click += (_, _) =>
         {
             var markdown = StrategyReport.Build(feedback.All(), shadowLog.All(), id => taskMemory.Get(id)?.Objective is { } objective ? (objective.Length > 50 ? objective[..50] + "…" : objective).Replace('\n', ' ') : null);
@@ -207,6 +219,7 @@ public partial class MainWindow
             var task = (list.SelectedItem as TaskRow)?.Task;
             add.IsEnabled = task is not null && rooms.Any(r => r.Id == task.RoomId && !r.IsArchived);
             rate.IsEnabled = task is not null;
+            evaluation.IsEnabled = task is not null && task.State != WorkState.Running; evaluation.Content = task is { Evaluation: true } ? "Unmark evaluation task" : "Mark as evaluation task";
             open.IsEnabled = task is not null;
             stop.IsEnabled = task is not null && workers.TryGetValue(task.RoomId, out var live) && live.Hub.TaskId == task.Id && task.State == WorkState.Running;
             resume.IsEnabled = task is not null && rooms.Any(r => r.Id == task.RoomId && !r.IsArchived);
@@ -216,7 +229,7 @@ public partial class MainWindow
             merge.IsEnabled = dropWorktrees.IsEnabled = layout is not null && task!.State != WorkState.Running;
             merge.Visibility = dropWorktrees.Visibility = layout is not null ? Visibility.Visible : Visibility.Collapsed;
             details.Text = task is null ? "Send a task in the conversation or choose New task." :
-                $"Objective: {task.Objective}\nState: {task.State}\nOwner: {(task.Owner.Length == 0 ? "No active worker" : task.Owner)}\nUpdated: {task.Updated:g}\n{task.Reason}\n\nTask notes:\n" +
+                $"Objective: {task.Objective}\nState: {task.State}\nOwner: {(task.Owner.Length == 0 ? "No active worker" : task.Owner)}\nUpdated: {task.Updated:g}\n{task.Reason}{(task.Evaluation ? "\nEvaluation task: the strategy policy may choose the strategy here when enabled in Settings." : "")}\n\nTask notes:\n" +
                 string.Join("\n\n", task.Notes.Select(n => $"{n.Time:g} · {n.Text}")) + "\n\nLatest agent reports:\n" +
                 string.Join("\n\n", task.LatestReplies.Select(p => p.Key + ": " + p.Value));
             if (task is not null && feedback.ForTask(task.Id) is { Length: > 0 } judged)

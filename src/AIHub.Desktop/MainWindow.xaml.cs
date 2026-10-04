@@ -40,6 +40,14 @@ public partial class MainWindow : Window
         var (suggested, reason) = StrategyAdvisor.Suggest(context);
         return ShadowStrategyLog.Describe(shadowLog.Record(context, suggested, reason, HubCoordinator.StrategySetting(executed)));
     }
+    // Evaluation tasks (0.34.0): the policy's choice runs, with a stated exploration rate, and the decision is recorded with its probability.
+    private (HubCoordinator.CollaborationStrategy Chosen, string Note) ChooseStrategy(string prompt, string taskId, long generation, HubCoordinator.CollaborationStrategy configured)
+    {
+        var context = StrategyAdvisor.Describe(prompt, taskId, generation, 2, feedback.All());
+        var (chosen, suggested, reason, probability, explored) = StrategyAdvisor.Choose(context, Random.Shared.NextDouble());
+        var decision = shadowLog.Record(context, suggested, reason, chosen, "evaluation", probability, explored);
+        return (HubCoordinator.ParseStrategy(chosen), ShadowStrategyLog.Describe(decision));
+    }
     private readonly RuntimeAudit audit;
     private sealed class RoomWorker(Room room, HubCoordinator hub)
     {
@@ -148,7 +156,7 @@ public partial class MainWindow : Window
             : new ClaudeClient(claudeOptions, room.ClaudeSession))
         {
             AutoExchange = settings.AutoExchange, AllowEdits = allowEdits, MaxAutoRounds = settings.MaxAutoRounds, TurnInactivitySeconds = settings.TurnInactivitySeconds, TaskMemory = taskMemory, TaskId = room.ActiveTaskId,
-            Strategy = HubCoordinator.ParseStrategy(settings.Strategy), StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null,
+            Strategy = HubCoordinator.ParseStrategy(settings.Strategy), StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null, StrategyChooser = settings.EvaluationChooser ? ChooseStrategy : null,
             ProviderUnavailableUntil = agent => settings.ProviderUnavailableUntil.TryGetValue(agent.ToString(), out var until) && until > DateTimeOffset.Now ? until : null,
             CollaborationStore = collaborationStore,
             CollaborationBridgePath = Path.Combine(AppContext.BaseDirectory, "bridge", "AIHub.McpBridge.exe"),
@@ -630,7 +638,7 @@ public partial class MainWindow : Window
             settings = updated; Motion.Configure(settings.ReduceMotion);
             audit.Enabled = settings.CollectLocalDiagnostics;
             foreach (var worker in workers.Values)
-            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; worker.Hub.Strategy = HubCoordinator.ParseStrategy(settings.Strategy); worker.Hub.StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null; }
+            { worker.Hub.MaxAutoRounds = settings.MaxAutoRounds; worker.Hub.AutoExchange = settings.AutoExchange; worker.Hub.TurnInactivitySeconds = settings.TurnInactivitySeconds; worker.Hub.MidTurnPush = settings.MidTurnPush; worker.Hub.IsolateWorktrees = settings.IsolateAgentWorktrees; worker.Hub.Strategy = HubCoordinator.ParseStrategy(settings.Strategy); worker.Hub.StrategyShadow = settings.ShadowStrategy ? ShadowAdvice : null; worker.Hub.StrategyChooser = settings.EvaluationChooser ? ChooseStrategy : null; }
             RefreshMotion();
             if (connectionsChanged && !current.IsArchived) BuildHub();
             UpdateWorkspace();

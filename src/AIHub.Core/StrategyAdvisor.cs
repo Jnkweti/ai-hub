@@ -20,6 +20,12 @@ public sealed class ShadowDecision
     public string Executed { get; set; } = "";
     public string Reason { get; set; } = "";
     public StrategyContext? Context { get; set; }
+    /// <summary>"shadow": recorded only; "evaluation": the policy's choice was executed on a designated evaluation task (0.34.0).</summary>
+    public string Mode { get; set; } = "shadow";
+    /// <summary>In evaluation mode, the probability with which the suggested strategy was selected (1 minus the exploration rate).</summary>
+    public double ProbabilityOfSuggested { get; set; } = 1;
+    /// <summary>In evaluation mode, whether the executed strategy was the exploration alternative rather than the suggestion.</summary>
+    public bool Explored { get; set; }
 }
 
 /// <summary>
@@ -36,6 +42,18 @@ public static class StrategyAdvisor
         taskId, generation, prompt.Split((char[])[' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).Length, Judgement.IsMatch(prompt), Code.IsMatch(prompt), generation <= 1, participants,
         feedback.Count(f => f.Strategy == "reaction" && f.Kind == FeedbackKind.Useful), feedback.Count(f => f.Strategy == "reaction" && f.Kind == FeedbackKind.NeedsCorrection),
         feedback.Count(f => f.Strategy == "independent" && f.Kind == FeedbackKind.Useful), feedback.Count(f => f.Strategy == "independent" && f.Kind == FeedbackKind.NeedsCorrection));
+    public const double ExplorationRate = 0.25;
+    /// <summary>
+    /// Evaluation mode (0.34.0): the suggestion is executed with probability 1 - <see cref="ExplorationRate"/>, otherwise the other
+    /// strategy, so both appear under comparable conditions. The draw is the caller's, so tests can fix it.
+    /// </summary>
+    public static (string Chosen, string Suggested, string Reason, double ProbabilityOfSuggested, bool Explored) Choose(StrategyContext c, double draw, double explorationRate = ExplorationRate)
+    {
+        var (suggested, reason) = Suggest(c);
+        var explore = c.Participants >= 2 && draw < explorationRate;
+        var chosen = explore ? (suggested == "independent" ? "reaction" : "independent") : suggested;
+        return (chosen, suggested, reason, c.Participants >= 2 ? 1 - explorationRate : 1, explore);
+    }
     /// <summary>Returns the suggested strategy setting ("reaction" or "independent") and the reason, from the context alone.</summary>
     public static (string Strategy, string Reason) Suggest(StrategyContext c)
     {
@@ -69,9 +87,10 @@ public sealed class ShadowStrategyLog
         this.store = store;
         decisions = store.Load(FileName, () => new List<ShadowDecision>(), Repair);
     }
-    public ShadowDecision Record(StrategyContext context, string suggested, string reason, string executed)
+    public ShadowDecision Record(StrategyContext context, string suggested, string reason, string executed, string mode = "shadow", double probabilityOfSuggested = 1, bool explored = false)
     {
-        var decision = new ShadowDecision { TaskId = context.TaskId, Generation = context.Generation, PolicyVersion = StrategyAdvisor.PolicyVersion, Suggested = suggested, Executed = executed, Reason = reason, Context = context };
+        var decision = new ShadowDecision { TaskId = context.TaskId, Generation = context.Generation, PolicyVersion = StrategyAdvisor.PolicyVersion, Suggested = suggested, Executed = executed, Reason = reason, Context = context,
+            Mode = mode, ProbabilityOfSuggested = probabilityOfSuggested, Explored = explored };
         lock (gate)
         {
             decisions.Add(decision);
@@ -82,20 +101,25 @@ public sealed class ShadowStrategyLog
     }
     public ShadowDecision[] All() { lock (gate) return decisions.Select(Copy).ToArray(); }
     public ShadowDecision[] ForTask(string taskId) { lock (gate) return decisions.Where(d => d.TaskId == taskId).Select(Copy).ToArray(); }
-    public static string Describe(ShadowDecision d) => $"{d.Time.ToLocalTime():g} · phase {d.Generation} · suggested {HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Suggested))}, ran {HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Executed))}{(d.Suggested == d.Executed ? " (same)" : " (differs)")} · {d.Reason} · {d.PolicyVersion}";
+    public static string Describe(ShadowDecision d) => d.Mode == "evaluation"
+        ? $"{d.Time.ToLocalTime():g} · phase {d.Generation} · evaluation task: policy chose {HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Executed))}{(d.Explored ? " (exploring; suggestion was " + HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Suggested)) + ")" : "")} with p={d.ProbabilityOfSuggested:0.00} for the suggestion · {d.Reason} · {d.PolicyVersion}"
+        : $"{d.Time.ToLocalTime():g} · phase {d.Generation} · suggested {HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Suggested))}, ran {HubCoordinator.StrategyName(HubCoordinator.ParseStrategy(d.Executed))}{(d.Suggested == d.Executed ? " (same)" : " (differs)")} · {d.Reason} · {d.PolicyVersion}";
     /// <summary>How often the shadow policy agreed with what ran, and the counts behind it.</summary>
     public static string Summary(IReadOnlyList<ShadowDecision> items)
     {
         if (items.Count == 0) return "No shadow decisions recorded yet.";
-        var same = items.Count(d => d.Suggested == d.Executed);
-        return $"{items.Count} phase{(items.Count == 1 ? "" : "s")} observed; the shadow policy would have chosen the executed strategy in {same} ({(double)same / items.Count:P0}). Suggested independent {items.Count(d => d.Suggested == "independent")} times, reaction {items.Count(d => d.Suggested == "reaction")} times. Suggestions were never executed by the host.";
+        var shadowOnly = items.Where(d => d.Mode != "evaluation").ToArray(); var evaluation = items.Where(d => d.Mode == "evaluation").ToArray();
+        var same = shadowOnly.Count(d => d.Suggested == d.Executed);
+        var text = shadowOnly.Length == 0 ? "" : $"{shadowOnly.Length} phase{(shadowOnly.Length == 1 ? "" : "s")} observed in shadow; the policy would have chosen the executed strategy in {same} ({(double)same / shadowOnly.Length:P0}). Suggested independent {shadowOnly.Count(d => d.Suggested == "independent")} times, reaction {shadowOnly.Count(d => d.Suggested == "reaction")} times. Shadow suggestions were never executed.";
+        if (evaluation.Length > 0) text += (text.Length > 0 ? " " : "") + $"{evaluation.Length} evaluation phase{(evaluation.Length == 1 ? "" : "s")}: the policy chose the strategy ({evaluation.Count(d => d.Explored)} explored, {evaluation.Count(d => d.Executed == "independent")} ran independent answers).";
+        return text;
     }
     private static ShadowDecision Copy(ShadowDecision d) => JsonSerializer.Deserialize<ShadowDecision>(JsonSerializer.Serialize(d))!;
     private static bool Repair(List<ShadowDecision> items)
     {
         var before = JsonSerializer.Serialize(items); var ids = new HashSet<string>();
         items.RemoveAll(d => d is null || d.Format != 1 || !Guid.TryParseExact(d.Id, "N", out _) || !ids.Add(d.Id) || d.Suggested is not ("reaction" or "independent") || d.Executed is not ("reaction" or "independent") || string.IsNullOrWhiteSpace(d.TaskId));
-        foreach (var d in items) { d.Reason ??= ""; if (d.Reason.Length > 500) d.Reason = d.Reason[..500]; d.PolicyVersion ??= ""; if (d.PolicyVersion.Length > 32) d.PolicyVersion = d.PolicyVersion[..32]; }
+        foreach (var d in items) { d.Reason ??= ""; if (d.Reason.Length > 500) d.Reason = d.Reason[..500]; d.PolicyVersion ??= ""; if (d.PolicyVersion.Length > 32) d.PolicyVersion = d.PolicyVersion[..32]; if (d.Mode is not ("shadow" or "evaluation")) d.Mode = "shadow"; if (d.ProbabilityOfSuggested is < 0 or > 1 || double.IsNaN(d.ProbabilityOfSuggested)) d.ProbabilityOfSuggested = 1; }
         while (items.Count > MaxDecisions) items.RemoveAt(0);
         return before != JsonSerializer.Serialize(items);
     }
