@@ -357,6 +357,92 @@ the same elapsed time as the reaction-rounds arm and an equivalent answer. Again
 Claude session fed two earlier solo answers, 1 min 26 s, $0.93), the in-harness version costs the two fresh answers
 but keeps everything attributed in one ledger and lets the synthesizer verify claims with tools. One run each.
 
+## Ninth pilot: a harder task with an interaction bug and a decoy (October 3, 2026, 0.34.0)
+
+Chosen on the developer's instruction to exercise the challenge path from real disagreement. A new project,
+`syncsvc` (`%LOCALAPPDATA%\Temp\ah-pilot\syncsvc`, 9 files, ~300 lines): orders flow through a lease-based work queue
+to two workers that claim a batch, ship it, then acknowledge. Prompt (`artifacts\pilot-028\prompt8.txt`): ops report
+INC-2291 — the Europe/Berlin deployment ships every order twice from different workers, the UTC deployment with the
+same build and config does not, `tools/replay.py --tz Europe/Berlin` reproduces it; a colleague suspects the batch
+slicing; find the actual cause, say whether the colleague is right, propose the minimal fix; read-only.
+
+Ground truth, written before the runs:
+
+- Root cause: `syncsvc/queue.py` mixes clocks. `claim` sets `lease_until = datetime.utcnow() + lease`, while
+  `_available` compares it with `clock.now()`, the deployment's local wall-clock time. In Berlin (UTC+2) every lease
+  therefore reads as expired the moment it is granted, so the second worker re-claims the first worker's unacknowledged
+  items a few seconds later and ships them again; in UTC the two clocks agree and leases hold. The log excerpt shows
+  it: "claimed 50 (lease to 12:08:10)" at local 14:03:10.
+- Minimal fix: compute `lease_until` with the same clock the check uses (`clock.now()`), or compare against
+  `datetime.utcnow()` on both sides; one line either way.
+- The colleague is wrong: `worker.batches` slices `size + 1` but advances `start` by the actual batch length, so
+  batches never overlap (the test `test_batches_cover_every_item_once` shows [5, 5] over ten items); it also cannot
+  explain the deployment dependence.
+- Rubric: cause identified as the clock mismatch in the lease comparison; the decoy explicitly refuted with the
+  advancing-cursor reason or the deployment argument; the fix is one of the two clock alignments, not a rewrite; the
+  replay run or the log mismatch cited as evidence; limits stated. Harness measures: whether any first answer took the
+  decoy, whether the peer challenged with a `question`, whether a resolution turn ran, elapsed, usage.
+
+### Both (reaction rounds)
+
+8 min 14 s, seven ledger entries, one question, one resolution. Codex opened with a split (`syncsvc/` for itself; the
+replay, incident and tests for Claude; 2 min 0 s), then its synthesis (4 min 11 s) named the clock mismatch in
+`queue.py`, cited the 14:03:10 / 12:08:10 log pair, refuted the colleague on both grounds (non-overlapping slices
+capped at `batch_size`; the UTC-pinned test), proposed a UTC helper for both sides, and said it had not run the replay.
+Claude Code read the four files itself and, instead of a parallel answer, sent Codex a `question` (55 s): run both
+replays so the duplicate and pending counts are captured as evidence, and weigh the one-line `clock.now()` change
+against the UTC helper. Codex ran both (2 min 20 s; Berlin 240 shipments / 120 duplicates, UTC 120 / 0, captured),
+explained the grouped log order, and recommended the one-liner as the hotfix with the UTC helper as the DST-safe
+follow-up. Claude's resolution turn (17 s): the evidence "does not change my position"; fix the one line, keep the
+helper as follow-up, add a non-UTC regression test — and one gap neither had raised: the incident says pending never
+drains, the replay ends with pending 0 in both zones, so that symptom is unexplained and may have a separate cause.
+Codex's reaction turn restated that gap; Claude passed. Shadow policy: suggested independent answers (first phase,
+judgement question), ran reaction rounds. Usage: Codex 807k input (732k cached) / 14.7k output over four turns;
+Claude 299k input (272k cached) / 5.8k output over three, $0.89.
+
+Rubric: cause, decoy refutation, fix, evidence and limits all pass. The challenge path ran unprompted — the second
+time on a real task — again as a request for execution and a fix-variant judgement, not as disagreement, because the
+first answer was right. The pending-drain gap is a genuine catch: the incident text asserts a symptom the
+reproduction does not show.
+
+### Claude Code alone
+
+1 min 39 s, one turn, twelve `Read`s, $1.15. Cause at `queue.py:42` versus `:33`, the Berlin offset explained, the
+log pair as evidence, the decoy refuted on both grounds plus the capped claim, the one-line fix with the deprecation
+note, a non-UTC regression test, the DST caveat, and the limits (no execution; `config/default.toml` is referenced but
+absent; no git history). Every rubric line passes. It did not notice the pending-drain discrepancy.
+
+### Codex alone
+
+3 min 25 s, one turn, five commands including both replays (Berlin 240 shipments / 120 duplicates; UTC 120 / 0).
+Cause at `queue.py:42` versus `:33`, the log pair, the decoy refuted on both grounds, a UTC-helper fix (the DST-safe
+variant rather than the one-liner), and limits that include the pending-drain symptom the replay does not show and the
+absent `config/default.toml`. Every rubric line passes.
+
+### Comparison (ninth pilot)
+
+| Arm | Elapsed | Turns | Cause, decoy, fix | Execution | Extra | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| Both | 8 min 14 s | 7 (split research, question, resolution) | yes | Codex ran both replays on Claude's question; captured as evidence | pending-drain gap found and recorded in the resolution | Codex 807k in / 15k out; Claude $0.89 |
+| Codex alone | 3 min 25 s | 1 | yes | ran both replays | pending-drain gap, missing config | Codex 597k in / 10k out |
+| Claude alone | 1 min 39 s | 1 | yes | none (read-only) | DST caveat, missing config, no git history | Claude $1.15 |
+
+### Conclusions after the ninth pilot (twelve pilot runs)
+
+- A decoy that explains the symptom only superficially, with a deployment dependence pointing elsewhere, was not
+  enough to produce a wrong first answer from either model; all three arms refuted it with the right reasons. A task
+  that defeats these models on the first pass needs more than a plausible decoy — a larger codebase where the
+  relevant evidence is far from where the symptom points, or a question whose answer depends on facts the agent
+  cannot read.
+- What the harness added on this task was the loop working as designed: Claude, unable to execute, asked Codex for the
+  reproduction instead of hand-tracing, got captured output, and recorded a decision against it — the second
+  unprompted question → answer → resolution on a real task. The cost was 2.4× Codex-alone elapsed time; the quality
+  difference was one recorded decision with evidence behind it and one caught gap, both of which Codex alone also
+  reached in its own single turn.
+- Twelve runs, twelve correct answers. The remaining lever for separating the arms is not harder planted bugs but
+  real work over time with the developer's feedback, which 0.29.0 to 0.34.0 now capture; the Strategy report is where
+  that comparison will appear.
+
 ### Refinements suggested for Phase 2 (status as of October 3, 2026)
 
 1. Preparation cap — **shipped in 0.28.1**: preparation runs while the first speaker works, with a 45 s grace at the
