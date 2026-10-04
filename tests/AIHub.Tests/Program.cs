@@ -507,7 +507,7 @@ static class FakeWire
                         ClaudeResult(ProjectStatusTests.Report);
                     }
                     else if (m["message"].Str("content").Contains("activity-fixture")) ActivityNoise(true);
-                    else if (m["message"].Str("content").Contains("task-fixture"))
+                    else if (IsTaskFixture(m["message"].Str("content")))
                     {
                         var prompt = m["message"].Str("content");
                         await Task.Delay(prompt.Contains("task-fixture-hold") ? 15000 : 1800);
@@ -562,7 +562,7 @@ static class FakeWire
                         CodexResult(ProjectStatusTests.Report);
                     }
                     else if (m["params"]?["input"]?[0].Str("text").Contains("activity-fixture") == true) ActivityNoise(false);
-                    else if (m["params"]?["input"]?[0].Str("text").Contains("task-fixture") == true)
+                    else if (IsTaskFixture(m["params"]?["input"]?[0].Str("text") ?? ""))
                     {
                         var prompt = m["params"]?["input"]?[0].Str("text") ?? "";
                         await Task.Delay(prompt.Contains("task-fixture-hold") ? 15000 : 1800);
@@ -605,6 +605,9 @@ static class FakeWire
             CodexResult("Activity fixture complete.\n\nTask complete.");
         }
     }
+    // A resumed native session gets only the events since its last turn (0.26.0), so a later phase's prompt no longer carries
+    // the objective; the markers the task smoke asserts on identify such turns.
+    static bool IsTaskFixture(string prompt) => prompt.Contains("task-fixture") || prompt.Contains("Saved task keyboard note") || prompt.Contains("OLD-TASK-MARKER");
     static string TaskFixtureReply(string prompt) => "Task fixture result. Note included: " + prompt.Contains("Saved task keyboard note") +
         ". Historical marker included: " + prompt.Contains("OLD-TASK-MARKER") + ".\n\nTask complete.";
     static void CodexResult(string body)

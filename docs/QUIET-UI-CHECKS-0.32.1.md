@@ -43,3 +43,10 @@ running anything:
 Quiet checks, safe to run when the developer allows a check run: `Feedback`, `Conversation-Management`,
 `Local-Diagnostics`, and after this repair `Task-Memory`. The repaired scripts have been parsed but not executed;
 their next consented run is their verification.
+
+Later the same day the developer consented to one run of `Task-Memory`. It reached the note step and failed there
+because the test fixture recognized a task turn only by the objective keyword, which a resumed native session no longer
+receives (since 0.26.0 it gets the events since its last turn); the ledger showed the note delivered as a `user_note`nevent. The fixture now also recognizes the note and marker texts the check asserts on. A second run passed all seven
+steps, including the note reaching the worker; the unit suite (277) passed with the widened fixture. That second run
+still put dialogs over the developer's work, so **no UI check is run from the assistant any more**, whatever the
+wording: build and unit suite verify desktop changes, and a UI check is a command the developer runs when it suits them.
