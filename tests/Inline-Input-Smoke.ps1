@@ -1,4 +1,5 @@
 param([string]$AppDirectory = '', [string]$FixturePath = '')
+# NEEDS KEYBOARD FOCUS: this check types or uses shortcuts, so it brings the app to the front and takes over the screen while it runs. Run it only with the developer's explicit consent for this script, never as part of a routine release.
 # Offline native UI checks with both provider protocols. Never opens a real agent session.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient

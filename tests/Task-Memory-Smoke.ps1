@@ -2,13 +2,8 @@ param([string]$AppDirectory = '', [string]$FixturePath = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class TaskSmokeWindow {
- [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
-}
-'@
+# Quiet check (0.35.1): drives the app through UI Automation only; it never restores or activates the window, and reads
+# transcripts from the per-room files that have held them since 0.23.0.
 $hubRoot = Split-Path $PSScriptRoot -Parent
 if (-not $AppDirectory) { $AppDirectory = Join-Path $hubRoot 'artifacts\tasks-candidate' }
 if (-not $FixturePath) { $FixturePath = Join-Path $hubRoot 'artifacts\tasks-test-build\bin\AIHub.Tests\release\AIHub.Tests.exe' }
@@ -36,7 +31,16 @@ function Invoke-Control([string]$id,$root=$script:hubWindow) { (Control $id $roo
 function Value([string]$id,[string]$text,$root=$script:hubWindow) { (Control $id $root).GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($text) }
 function Send([string]$text) { Value 'Composer' $text; Invoke-Control 'SendButton' }
 function Tasks { $records = Get-Content -Raw -LiteralPath (Join-Path $hubData 'tasks.json') | ConvertFrom-Json; foreach ($record in $records) { Write-Output $record } }
-function Rooms { $records = Get-Content -Raw -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json; foreach ($record in $records) { Write-Output $record } }
+function Rooms {
+ # rooms.json is a header index since 0.23.0; each room's messages live in room-<id>.json.
+ $records = Get-Content -Raw -LiteralPath (Join-Path $hubData 'rooms.json') | ConvertFrom-Json
+ foreach ($record in $records) {
+  $transcript = Join-Path $hubData ('room-' + $record.Id + '.json')
+  $messages = if (Test-Path -LiteralPath $transcript) { @(Get-Content -Raw -LiteralPath $transcript | ConvertFrom-Json) } else { @() }
+  $record | Add-Member -NotePropertyName Messages -NotePropertyValue $messages -Force
+  Write-Output $record
+ }
+}
 function Dialog([string]$title) {
  $named = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$title)
  $typed = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Window)
@@ -52,8 +56,7 @@ function Start-Hub {
  $nameCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,'AI Hub')
  $windowCondition = [System.Windows.Automation.AndCondition]::new($processCondition,$nameCondition)
  Wait-For { $script:hubWindow = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children,$windowCondition); $null -ne $script:hubWindow } 'Task window did not open'
- [TaskSmokeWindow]::ShowWindow([IntPtr]$script:hubWindow.Current.NativeWindowHandle,9) | Out-Null
- Start-Sleep -Milliseconds 1000
+ Start-Sleep -Milliseconds 500
  $hubHandle = [IntPtr]$script:hubWindow.Current.NativeWindowHandle
  Wait-For { $script:hubWindow = [System.Windows.Automation.AutomationElement]::FromHandle($hubHandle); $script:hubWindow.Current.ClassName -eq 'Window' } 'WPF automation provider did not attach'
  $null = Control 'Composer'

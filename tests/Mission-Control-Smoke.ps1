@@ -1,4 +1,5 @@
 param([string]$AppDirectory = '')
+# NEEDS KEYBOARD FOCUS: this check types or uses shortcuts, so it brings the app to the front and takes over the screen while it runs. Run it only with the developer's explicit consent for this script, never as part of a routine release.
 # Native UI checks using fixture providers only. No model calls or project edits.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient

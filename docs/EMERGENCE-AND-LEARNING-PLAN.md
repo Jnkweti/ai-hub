@@ -94,11 +94,11 @@ Acceptance: Measured strategy selection improves the predefined outcomes without
 
 ## Phase 6 Decide whether deeper training is justified
 
-- [ ] Evaluate whether strategy selection is enough or whether sequences of collaboration decisions need a longer-term reinforcement learning policy.
+- [ ] (deferred October 3, 2026 until the Strategy report has data; see `DECISIONS-2026-10-03.md`) Evaluate whether strategy selection is enough or whether sequences of collaboration decisions need a longer-term reinforcement learning policy.
 - [ ] Identify data requirements, delayed rewards, exploration limits, and evaluation methods before selecting a sequential learning algorithm.
 - [ ] Consider model parameter training separately, only if a suitable trainable model and a reviewed dataset are available. Harness learning does not modify the parameters of the current native provider models.
 - [ ] If parameter training proceeds, separate training and evaluation data, version datasets and models, and compare with the same harness using unchanged models.
-- [ ] Decide whether owning the full tool execution loop would unlock a measured need. Preserve the adapter boundary if a custom execution runtime is introduced.
+- [x] (decided October 3, 2026, see `DECISIONS-2026-10-03.md`: keep the adapter boundary; routing covered the observed limitations) Decide whether owning the full tool execution loop would unlock a measured need. Preserve the adapter boundary if a custom execution runtime is introduced.
 
 Acceptance: Record a decision supported by evidence. Deeper reinforcement learning, parameter training, and a custom execution runtime are optional branches, not prerequisites for the project vision.
 

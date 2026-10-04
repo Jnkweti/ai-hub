@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 $hubRoot = Split-Path $PSScriptRoot -Parent
+if (-not $NativeResultDirectory -or -not (Test-Path -LiteralPath (Join-Path $NativeResultDirectory 'data'))) {
+ throw "This check replays a real shared-context run: pass -NativeResultDirectory <dir> produced by 'AIHub.Tests.exe --shared-context-live <dir>' (its data folder is copied into an isolated profile)."
+}
 $hubData = Join-Path $hubRoot ('artifacts\shared-context-ui-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $hubData | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $NativeResultDirectory 'data') -Filter '*.json' | Copy-Item -Destination $hubData
